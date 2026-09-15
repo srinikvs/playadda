@@ -1,5 +1,5 @@
 (function () {
-  const VERSION = "1.2.2";
+  const VERSION = "1.2.3";
   const canvas = document.getElementById("ambient");
   const flock = window.startMurmur(canvas);
 
