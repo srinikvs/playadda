@@ -1,0 +1,16 @@
+{
+  "id": "B7",
+  "layer": "e2e",
+  "title": "Portal home loads with heading, brand, and game grid",
+  "gate": "block",
+  "steps": [{ "op": "openFresh" }],
+  "expect": [
+    { "assert": "visible", "testId": "portal-home" },
+    { "assert": "visible", "testId": "brand" },
+    { "assert": "visible", "testId": "heading" },
+    { "assert": "heading", "name": "Pick a game" },
+    { "assert": "visible", "testId": "card-grid" },
+    { "assert": "visible", "testId": "version" },
+    { "assert": "title", "match": "Playadda" }
+  ]
+}

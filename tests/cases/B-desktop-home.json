@@ -1,0 +1,27 @@
+{
+  "id": "B-desktop-home",
+  "layer": "e2e",
+  "title": "Desktop 1280×800: portal home and seed cards visible",
+  "gate": "optional",
+  "viewport": "desktop",
+  "steps": [{ "op": "openFresh" }],
+  "expect": [
+    { "assert": "viewport", "width": 1280, "height": 800 },
+    { "assert": "visible", "testId": "portal-home" },
+    { "assert": "visible", "testId": "heading" },
+    { "assert": "visible", "testId": "card-mini-sudoku" },
+    { "assert": "visible", "testId": "card-tessera" },
+    { "assert": "visible", "testId": "menu-btn" },
+    {
+      "assert": "ctaFilled",
+      "testId": [
+        "card-mini-sudoku",
+        "card-tessera",
+        "card-classic-snake",
+        "card-tango",
+        "card-chassu-rider"
+      ],
+      "match": "play"
+    }
+  ]
+}

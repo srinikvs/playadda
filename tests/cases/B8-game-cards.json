@@ -1,0 +1,25 @@
+{
+  "id": "B8",
+  "layer": "e2e",
+  "title": "Mini Sudoku, Tessera, Classic Snake, Tango, and Chassu Rider cards show a filled Play CTA",
+  "gate": "block",
+  "steps": [{ "op": "openFresh" }],
+  "expect": [
+    { "assert": "visible", "testId": "card-mini-sudoku" },
+    { "assert": "visible", "testId": "card-tessera" },
+    { "assert": "visible", "testId": "card-classic-snake" },
+    { "assert": "visible", "testId": "card-tango" },
+    { "assert": "visible", "testId": "card-chassu-rider" },
+    {
+      "assert": "ctaFilled",
+      "testId": [
+        "card-mini-sudoku",
+        "card-tessera",
+        "card-classic-snake",
+        "card-tango",
+        "card-chassu-rider"
+      ],
+      "match": "play"
+    }
+  ]
+}

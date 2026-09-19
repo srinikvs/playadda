@@ -1,0 +1,18 @@
+{
+  "id": "B10",
+  "layer": "e2e",
+  "title": "Hamburger opens Murmur controls when present",
+  "gate": "block",
+  "steps": [
+    { "op": "openFresh" },
+    { "op": "openMenu" },
+    { "op": "waitVisible", "testId": "murmur-drawer" }
+  ],
+  "expect": [
+    { "assert": "visible", "testId": "menu-btn" },
+    { "assert": "visible", "testId": "murmur-drawer" },
+    { "assert": "visible", "testId": "scatter" },
+    { "assert": "visible", "testId": "pause" },
+    { "assert": "visible", "testId": "reset" }
+  ]
+}

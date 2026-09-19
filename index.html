@@ -187,18 +187,18 @@
   <canvas id="ambient" aria-hidden="true"></canvas>
   <div class="veil" aria-hidden="true"></div>
 
-  <button type="button" class="hamburger" id="menu-btn" data-ui aria-label="Open Murmur controls" aria-expanded="false" aria-controls="murmur-drawer">
+  <button type="button" class="hamburger" id="menu-btn" data-testid="menu-btn" data-ui aria-label="Open Murmur controls" aria-expanded="false" aria-controls="murmur-drawer">
     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16"/><path d="M4 12h16"/><path d="M4 17h16"/></svg>
   </button>
   <button type="button" class="scrim" id="scrim" data-ui hidden aria-label="Close menu"></button>
 
-  <aside id="murmur-drawer" class="drawer" data-ui role="dialog" aria-modal="true" aria-labelledby="murmur-title" hidden>
+  <aside id="murmur-drawer" class="drawer" data-testid="murmur-drawer" data-ui role="dialog" aria-modal="true" aria-labelledby="murmur-title" hidden>
     <div class="panel-head">
       <div>
         <p class="drawer-kicker">Ambient</p>
         <strong id="murmur-title">Murmur</strong>
       </div>
-      <button type="button" id="scatter" data-ui>Scatter</button>
+      <button type="button" id="scatter" data-testid="scatter" data-ui>Scatter</button>
     </div>
     <label class="row">Sep <input id="sep" data-ui type="range" min="0" max="3" step="0.05"><span class="val" id="sep-val"></span></label>
     <label class="row">Align <input id="ali" data-ui type="range" min="0" max="3" step="0.05"><span class="val" id="ali-val"></span></label>
@@ -207,21 +207,21 @@
     <label class="row">Speed <input id="spd" data-ui type="range" min="40" max="280" step="1"><span class="val" id="spd-val"></span></label>
     <label class="row">Flock <input id="pop" data-ui type="range" min="20" max="400" step="1"><span class="val" id="pop-val"></span></label>
     <div class="actions">
-      <button type="button" id="pause" data-ui>Pause</button>
-      <button type="button" id="reset" data-ui>Reset</button>
+      <button type="button" id="pause" data-testid="pause" data-ui>Pause</button>
+      <button type="button" id="reset" data-testid="reset" data-ui>Reset</button>
     </div>
     <p class="hint">Space pause · R reset · S scatter · pointer avoids</p>
     <p class="hint version" data-version>Playadda v__VERSION__</p>
   </aside>
 
-  <div class="wrap">
+  <div class="wrap" data-testid="portal-home">
     <header>
-      <p class="kicker">Playadda</p>
-      <h1>Pick a game</h1>
+      <p class="kicker" data-testid="brand">Playadda</p>
+      <h1 data-testid="heading">Pick a game</h1>
       <p class="sub">Tessera, Classic Snake, Mini Sudoku, Tango, Chassu Rider, and Pac-Man. Murmur runs behind the page — open the menu to steer the flock.</p>
     </header>
-    <div class="grid">
-      <a class="card" href="/tessera/" data-game="/tessera/" aria-label="Play Tessera">
+    <div class="grid" data-testid="card-grid">
+      <a class="card" href="/tessera/" data-game="/tessera/" data-testid="card-tessera" aria-label="Play Tessera">
         <div class="preview tessera" aria-hidden="true">
           <span class="block" style="left:46px;top:40px"></span>
           <span class="block" style="left:90px;top:40px;opacity:.85"></span>
@@ -231,10 +231,10 @@
         <div class="body">
           <h2 class="name">Tessera</h2>
           <p class="blurb">A block puzzle. Stack, slide, and clear the board.</p>
-          <span class="cta tessera-cta">Play full screen</span>
+          <span class="cta tessera-cta" data-testid="cta">Play full screen</span>
         </div>
       </a>
-      <a class="card" href="/classic-snake/" data-game="/classic-snake/" aria-label="Play Classic Snake">
+      <a class="card" href="/classic-snake/" data-game="/classic-snake/" data-testid="card-classic-snake" aria-label="Play Classic Snake">
         <div class="preview snake" aria-hidden="true">
           <span class="seg" style="left:48px;top:72px"></span>
           <span class="seg" style="left:74px;top:72px"></span>
@@ -246,10 +246,10 @@
         <div class="body">
           <h2 class="name">Classic Snake</h2>
           <p class="blurb">Eat, grow, survive. Mobile-first arcade snake with a D-pad.</p>
-          <span class="cta snake-cta">Play full screen</span>
+          <span class="cta snake-cta" data-testid="cta">Play full screen</span>
         </div>
       </a>
-      <a class="card" href="/mini-sudoku/" data-game="/mini-sudoku/" aria-label="Play Mini Sudoku">
+      <a class="card" href="/mini-sudoku/" data-game="/mini-sudoku/" data-testid="card-mini-sudoku" aria-label="Play Mini Sudoku">
         <div class="preview sudoku" aria-hidden="true">
           <span class="s-paper">
             <span class="s-box"><span class="s-cell g">4</span><span class="s-cell"></span><span class="s-cell g">6</span><span class="s-cell"></span><span class="s-cell g">2</span><span class="s-cell"></span></span>
@@ -263,10 +263,10 @@
         <div class="body">
           <h2 class="name">Mini Sudoku</h2>
           <p class="blurb">6×6 grid. Easy or Medium. Beat your best time.</p>
-          <span class="cta sudoku-cta">Play full screen</span>
+          <span class="cta sudoku-cta" data-testid="cta">Play full screen</span>
         </div>
       </a>
-      <a class="card" href="/tango/" data-game="/tango/" aria-label="Play Tango">
+      <a class="card" href="/tango/" data-game="/tango/" data-testid="card-tango" aria-label="Play Tango">
         <div class="preview tango" aria-hidden="true">
           <span class="orb" style="left:28%;top:32%;width:42px;height:42px;background:radial-gradient(circle at 35% 30%,#ffe8a3,#f0b429);animation:none"></span>
           <span class="orb" style="left:58%;top:44%;width:36px;height:36px;background:radial-gradient(circle at 40% 35%,#cfd6e6,#6b738a);animation:none"></span>
@@ -274,10 +274,10 @@
         <div class="body">
           <h2 class="name">Tango</h2>
           <p class="blurb">Daily sun-and-moon logic on a 6×6 grid. Harmonize rows and columns.</p>
-          <span class="cta tango-cta">Play full screen</span>
+          <span class="cta tango-cta" data-testid="cta">Play full screen</span>
         </div>
       </a>
-      <a class="card" href="/chassu-rider/" data-game="/chassu-rider/" aria-label="Play Chassu Rider">
+      <a class="card" href="/chassu-rider/" data-game="/chassu-rider/" data-testid="card-chassu-rider" aria-label="Play Chassu Rider">
         <div class="preview chassu" aria-hidden="true">
           <span class="pine" style="left:36px;top:48px;transform:scale(.85)"></span>
           <span class="pine" style="left:88px;top:30px"></span>
@@ -289,10 +289,10 @@
         <div class="body">
           <h2 class="name">Chassu Rider</h2>
           <p class="blurb">Endless downhill sled. Dodge pines, grab gifts, ride the slope.</p>
-          <span class="cta chassu-cta">Play full screen</span>
+          <span class="cta chassu-cta" data-testid="cta">Play full screen</span>
         </div>
       </a>
-      <a class="card" href="/pacman/" data-game="/pacman/" aria-label="Play Pac-Man">
+      <a class="card" href="/pacman/" data-game="/pacman/" data-testid="card-pacman" aria-label="Play Pac-Man">
         <div class="preview pacman" aria-hidden="true">
           <span class="dot" style="left:48px;top:86px"></span>
           <span class="dot" style="left:72px;top:86px"></span>
@@ -306,15 +306,15 @@
         <div class="body">
           <h2 class="name">Pac-Man</h2>
           <p class="blurb">Arcade maze chase. Eat the pellets. Dodge the ghosts. Don't get caught.</p>
-          <span class="cta pacman-cta">Play full screen</span>
+          <span class="cta pacman-cta" data-testid="cta">Play full screen</span>
         </div>
       </a>
     </div>
-    <footer data-version>playadda.duckdns.org · v__VERSION__</footer>
+    <footer data-version data-testid="version">playadda.duckdns.org · v__VERSION__</footer>
   </div>
 
-  <div id="play" hidden>
-    <a id="back" href="/">← Games</a>
+  <div id="play" data-testid="play-overlay" hidden>
+    <a id="back" href="/" data-testid="back">← Games</a>
     <iframe title="Game"></iframe>
   </div>
 

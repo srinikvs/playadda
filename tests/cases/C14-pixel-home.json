@@ -1,0 +1,40 @@
+{
+  "id": "C14",
+  "layer": "pixel",
+  "title": "Pixel 412×915: home usable and game cards not critically clipped",
+  "gate": "block",
+  "steps": [
+    { "op": "openFresh" },
+    { "op": "expect", "assert": "viewport", "width": 412, "height": 915 }
+  ],
+  "expect": [
+    { "assert": "viewport", "width": 412, "height": 915 },
+    { "assert": "visible", "testId": "heading" },
+    { "assert": "visible", "testId": "menu-btn" },
+    { "assert": "inViewport", "testId": ["heading", "menu-btn"] },
+    {
+      "assert": "noHorizontalClip",
+      "testId": [
+        "heading",
+        "menu-btn",
+        "card-mini-sudoku",
+        "card-tessera",
+        "card-classic-snake",
+        "card-tango",
+        "card-chassu-rider"
+      ]
+    },
+    {
+      "assert": "cardsUsable",
+      "testId": [
+        "card-mini-sudoku",
+        "card-tessera",
+        "card-classic-snake",
+        "card-tango",
+        "card-chassu-rider"
+      ],
+      "minWidth": 180,
+      "minHeight": 160
+    }
+  ]
+}
