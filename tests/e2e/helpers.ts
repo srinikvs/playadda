@@ -6,6 +6,16 @@ export const HOOK_SKIP =
 export const MENU_SKIP =
   "Hamburger / Murmur controls are not present on this host; skipping menu smoke.";
 
+export async function skipIfRemoteLacksHooks(): Promise<void> {
+  const remote = process.env.BASE_URL?.trim();
+  if (!remote) return;
+  const res = await fetch(remote);
+  const html = await res.text();
+  if (!html.includes('data-testid="portal-home"')) {
+    test.skip(true, HOOK_SKIP);
+  }
+}
+
 export async function ensureHooks(page: Page): Promise<void> {
   const hook = page.getByTestId("portal-home");
   if ((await hook.count()) === 0) {

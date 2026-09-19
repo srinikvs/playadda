@@ -16,7 +16,7 @@ export default defineConfig({
     baseURL,
     browserName: "chromium",
     screenshot: "only-on-failure",
-    trace: "retain-on-failure",
+    trace: process.env.CI ? "on-first-retry" : "off",
     video: "off",
   },
   webServer: remote
