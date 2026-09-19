@@ -15,7 +15,11 @@ js/portal.js    hamburger + fullscreen game overlay
 favicon.svg
 ```
 
+Test-only (do not copy to the document root): `package.json`, `playwright.config.ts`, `tests/`.
+
 No build step. Open `index.html` or serve the directory.
+
+`package.json`, Playwright, and `tests/` are Jenkins/local smoke tooling only. Do not deploy them (or `node_modules/`) to the Apache document root. See [TESTING.md](TESTING.md).
 
 ## Murmur
 

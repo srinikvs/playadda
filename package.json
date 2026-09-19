@@ -1,0 +1,17 @@
+{
+  "name": "playadda",
+  "private": true,
+  "version": "1.2.3",
+  "type": "module",
+  "scripts": {
+    "test": "tsx --test tests/cases/catalog.test.ts",
+    "test:e2e": "playwright test",
+    "test:e2e:pixel": "playwright test --project=pixel",
+    "test:e2e:desktop": "playwright test --project=desktop"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.55.0",
+    "@types/node": "^22.16.5",
+    "tsx": "^4.19.2"
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "id": "B9",
+  "layer": "e2e",
+  "title": "Click Mini Sudoku opens the game path in the portal overlay",
+  "gate": "block",
+  "steps": [
+    { "op": "openFresh" },
+    { "op": "click", "testId": "card-mini-sudoku" },
+    { "op": "waitVisible", "testId": "play-overlay" }
+  ],
+  "expect": [
+    { "assert": "visible", "testId": "play-overlay" },
+    { "assert": "visible", "testId": "back" },
+    { "assert": "path", "match": "/mini-sudoku/" },
+    { "assert": "iframeSrc", "match": "/mini-sudoku/" }
+  ]
+}
