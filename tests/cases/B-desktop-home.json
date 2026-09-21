@@ -10,12 +10,14 @@
     { "assert": "visible", "testId": "portal-home" },
     { "assert": "visible", "testId": "heading" },
     { "assert": "visible", "testId": "card-mini-sudoku" },
+    { "assert": "visible", "testId": "card-zip" },
     { "assert": "visible", "testId": "card-tessera" },
     { "assert": "visible", "testId": "menu-btn" },
     {
       "assert": "ctaFilled",
       "testId": [
         "card-mini-sudoku",
+        "card-zip",
         "card-tessera",
         "card-classic-snake",
         "card-tango",

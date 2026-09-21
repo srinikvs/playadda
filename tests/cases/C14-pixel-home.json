@@ -18,6 +18,7 @@
         "heading",
         "menu-btn",
         "card-mini-sudoku",
+        "card-zip",
         "card-tessera",
         "card-classic-snake",
         "card-tango",
@@ -28,6 +29,7 @@
       "assert": "cardsUsable",
       "testId": [
         "card-mini-sudoku",
+        "card-zip",
         "card-tessera",
         "card-classic-snake",
         "card-tango",

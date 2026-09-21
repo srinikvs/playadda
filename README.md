@@ -2,11 +2,11 @@
 
 Games portal for [playadda.duckdns.org](https://playadda.duckdns.org/).
 
-**v1.2.3** — Murmur runs live as the homepage ambient background. Controls live in the hamburger menu. Game cards: Tessera, Classic Snake, Mini Sudoku, Tango, Chassu Rider, Pac-Man. Murmur is not a stack card.
+**v1.2.4** — Murmur runs live as the homepage ambient background. Controls live in the hamburger menu. Game cards: Tessera, Classic Snake, Mini Sudoku, Zip, Tango, Chassu Rider, Pac-Man. Murmur is not a stack card.
 
 ## Layout
 
-Apache document root. Drop these files at `/` — do not replace `/tessera/`, `/tango/`, `/classic-snake/`, `/chassu-rider/`, `/pacman/`, `/mini-sudoku/`, or `/murmur/`.
+Apache document root. Drop these files at `/` — do not replace `/tessera/`, `/tango/`, `/classic-snake/`, `/chassu-rider/`, `/pacman/`, `/mini-sudoku/`, `/zip/`, or `/murmur/`.
 
 ```
 index.html      portal chrome
@@ -35,4 +35,4 @@ Same engine as [srinikvs/Murmur](https://github.com/srinikvs/Murmur). Settings p
 
 ## Version
 
-`1.2.3` — stamped in the footer and the Murmur drawer.
+`1.2.4` — stamped in the footer and the Murmur drawer.
