@@ -102,4 +102,4 @@ Still manual:
 
 ## Hooks
 
-Stable `data-testid` attributes (`portal-home`, `heading`, `card-grid`, `card-mini-sudoku`, `card-tessera`, `cta`, `menu-btn`, `murmur-drawer`, `play-overlay`, `version`, …). Overlay navigation still uses `data-game` + `history.pushState`. Portal and Murmur logic is unchanged.
+Stable `data-testid` attributes (`portal-home`, `heading`, `card-grid`, `card-mini-sudoku`, `card-zip`, `card-tessera`, `cta`, `menu-btn`, `murmur-drawer`, `play-overlay`, `version`, …). Overlay navigation still uses `data-game` + `history.pushState`. Portal and Murmur logic is unchanged.
