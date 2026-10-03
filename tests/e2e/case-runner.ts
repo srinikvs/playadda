@@ -15,6 +15,12 @@ async function applyExpect(page: Page, exp: Expectation, caseId: string): Promis
     case "hidden":
       await expect(loc(page, String(exp.testId)), tag).toBeHidden();
       return;
+    case "checked":
+      await expect(loc(page, String(exp.testId)), tag).toBeChecked();
+      return;
+    case "unchecked":
+      await expect(loc(page, String(exp.testId)), tag).not.toBeChecked();
+      return;
     case "title":
       await expect(page, tag).toHaveTitle(new RegExp(String(exp.match)));
       return;
