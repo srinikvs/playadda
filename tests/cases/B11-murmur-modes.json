@@ -1,0 +1,21 @@
+{
+  "id": "B11",
+  "layer": "e2e",
+  "title": "Murmur menu selects one mode at a time",
+  "gate": "optional",
+  "steps": [
+    { "op": "openFresh" },
+    { "op": "openMenu" },
+    { "op": "click", "testId": "mode-koya" },
+    { "op": "click", "testId": "mode-diwali" },
+    { "op": "click", "testId": "mode-cursors" }
+  ],
+  "expect": [
+    { "assert": "visible", "testId": "mode-cursors" },
+    { "assert": "visible", "testId": "mode-koya" },
+    { "assert": "visible", "testId": "mode-diwali" },
+    { "assert": "checked", "testId": "mode-cursors" },
+    { "assert": "unchecked", "testId": "mode-koya" },
+    { "assert": "unchecked", "testId": "mode-diwali" }
+  ]
+}
