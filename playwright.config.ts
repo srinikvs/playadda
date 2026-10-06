@@ -22,7 +22,7 @@ export default defineConfig({
   webServer: remote
     ? undefined
     : {
-        command: "node tests/static-server.mjs",
+        command: "node tests/auth-server.mjs",
         url: "http://127.0.0.1:4173/",
         reuseExistingServer: !process.env.CI,
         timeout: 30_000,
@@ -42,7 +42,7 @@ export default defineConfig({
     },
     {
       name: "desktop",
-      testMatch: /desktop\.catalog\.spec\.ts/,
+      testMatch: /desktop\.catalog\.spec\.ts|auth\.spec\.ts/,
       use: {
         viewport: { width: 1280, height: 800 },
         isMobile: false,

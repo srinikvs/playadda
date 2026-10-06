@@ -1,10 +1,13 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
+import { totp } from "../../server/totp.mjs";
 
 export const HOOK_SKIP =
   'Live BASE_URL lacks data-testid hooks (missing [data-testid="portal-home"]). CI default is a local static server of this checkout. Omit BASE_URL, or deploy hooks to the remote host before live smoke.';
 
 export const MENU_SKIP =
   "Hamburger / Murmur controls are not present on this host; skipping menu smoke.";
+
+const TEST_SECRET = "JBSWY3DPEHPK3PXP";
 
 export async function skipIfRemoteLacksHooks(): Promise<void> {
   const remote = process.env.BASE_URL?.trim();
@@ -23,10 +26,20 @@ export async function ensureHooks(page: Page): Promise<void> {
   }
 }
 
+export async function loginIfNeeded(page: Page): Promise<void> {
+  const overlay = page.getByTestId("login-overlay");
+  if ((await overlay.count()) === 0 || !(await overlay.isVisible())) return;
+  await page.getByTestId("login-name").fill("qa");
+  await page.getByTestId("login-code").fill(totp(TEST_SECRET));
+  await page.getByTestId("login-submit").click();
+  await expect(overlay).toBeHidden();
+}
+
 export async function openFresh(page: Page): Promise<void> {
   await page.goto("./");
   await page.waitForLoadState("domcontentloaded");
   await ensureHooks(page);
+  await loginIfNeeded(page);
   await expect(page.getByTestId("portal-home")).toBeVisible();
 }
 
