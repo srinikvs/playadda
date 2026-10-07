@@ -1,5 +1,6 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import { totp } from "../../server/totp.mjs";
+import { jenkinsSessionInjected } from "./session-env.ts";
 
 export const HOOK_SKIP =
   'Live BASE_URL lacks data-testid hooks (missing [data-testid="portal-home"]). CI default is a local static server of this checkout. Omit BASE_URL, or deploy hooks to the remote host before live smoke.';
@@ -27,6 +28,15 @@ export async function ensureHooks(page: Page): Promise<void> {
 }
 
 export async function loginIfNeeded(page: Page): Promise<void> {
+  // Jenkins Credentials inject PLAYADDA_E2E_STORAGE_STATE or PLAYADDA_E2E_SESSION_COOKIE.
+  // When either is set, do not type a name or TOTP. Minting stays on the host.
+  if (jenkinsSessionInjected()) {
+    const overlay = page.getByTestId("login-overlay");
+    if ((await overlay.count()) > 0 && (await overlay.isVisible())) {
+      throw new Error("Jenkins session was injected but the login overlay is still visible");
+    }
+    return;
+  }
   const overlay = page.getByTestId("login-overlay");
   if ((await overlay.count()) === 0 || !(await overlay.isVisible())) return;
   await page.getByTestId("login-name").fill("qa");

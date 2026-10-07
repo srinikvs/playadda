@@ -1,9 +1,11 @@
 import { expect, test } from "@playwright/test";
 import { totp } from "../../server/totp.mjs";
+import { jenkinsSessionInjected } from "./session-env.ts";
 
 const TEST_SECRET = "JBSWY3DPEHPK3PXP";
 
 test("invalid authenticator code stays on login", async ({ page }) => {
+  test.skip(jenkinsSessionInjected(), "Jenkins session injected; overlay login is not used");
   await page.goto("./");
   await expect(page.getByTestId("login-overlay")).toBeVisible();
   await expect(page.getByTestId("portal-home")).toBeHidden();
@@ -15,6 +17,7 @@ test("invalid authenticator code stays on login", async ({ page }) => {
 });
 
 test("valid name and code unlocks portal scores", async ({ page }) => {
+  test.skip(jenkinsSessionInjected(), "Jenkins session injected; overlay login is not used");
   await page.goto("./");
   await page.getByTestId("login-name").fill("QA");
   await page.getByTestId("login-code").fill(totp(TEST_SECRET));

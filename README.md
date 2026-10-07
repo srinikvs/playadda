@@ -52,12 +52,22 @@ Games can report a score without a repo change:
 parent.postMessage({ type: "playadda:score", game: "tessera", score: 120 }, location.origin);
 ```
 
+## Playwright session (Jenkins)
+
+playaddatest e2e prefers a session minted on the host. This repo does not mint it and must not commit the cookie or storageState file. Jenkins Credentials inject one of:
+
+- `PLAYADDA_E2E_STORAGE_STATE` — path to a Playwright storageState JSON (not in git)
+- `PLAYADDA_E2E_SESSION_COOKIE` — `playadda_session` value, or `playadda_session=<value>`
+
+If either is set, global setup loads it and `loginIfNeeded` skips the name and TOTP fields. If both are unset, Pixel and manual runs still type the overlay login against the local fake `qa` fixture.
+
 ## QA
 
 1. Open `/` signed out. Login card sits over Murmur. Game grid is hidden. Hamburger still opens Murmur controls. Version reads v1.3.0.
 2. Wrong name or code: error, stay on login.
 3. Name from the external JSON plus a current authenticator code: grid unlocks, account bar shows your best and overall high score.
 4. `window.playadda.submitScore("portal", 10)` raises that user's best. A higher score from another account updates overall.
+5. With `PLAYADDA_E2E_STORAGE_STATE` or `PLAYADDA_E2E_SESSION_COOKIE` set, e2e does not type the overlay. Unset, overlay login still runs.
 
 ```bash
 npm install

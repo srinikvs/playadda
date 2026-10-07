@@ -1,10 +1,14 @@
 import { defineConfig } from "@playwright/test";
+import { resolveStorageState } from "./tests/e2e/session-env.ts";
 
 const remote = process.env.BASE_URL?.trim();
 const baseURL = (remote || "http://127.0.0.1:4173/").replace(/\/?$/, "/");
+// Prefer a Jenkins-injected session. Unset keeps the overlay login for Pixel/manual runs.
+const storageState = resolveStorageState();
 
 export default defineConfig({
   testDir: "./tests/e2e",
+  globalSetup: "./tests/e2e/global-setup.ts",
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
@@ -14,6 +18,7 @@ export default defineConfig({
   reporter: process.env.CI ? [["github"], ["list"]] : "list",
   use: {
     baseURL,
+    storageState,
     browserName: "chromium",
     screenshot: "only-on-failure",
     trace: process.env.CI ? "on-first-retry" : "off",
