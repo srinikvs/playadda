@@ -67,3 +67,5 @@ npm run test:e2e
 ```
 
 Local e2e uses `tests/fixtures/users.json` (fake `qa` secret only) via `tests/auth-server.mjs`.
+
+CI can pass `PLAYADDA_E2E_STORAGE_STATE` (path to a Playwright storageState JSON file) or, when that is unset, `PLAYADDA_E2E_SESSION_COOKIE` (`name=value`, or a raw Cookie header such as `playadda_session=<token>; other=value`) so e2e loads a host-minted session for the `BASE_URL` origin and does not type the login overlay. `PLAYADDA_E2E_STORAGE_STATE` wins when both are set. Leave both unset for local Pixel and manual runs, which still sign in through the overlay. The host job mints the session. Do not commit storage state, cookies, or authenticator secrets. The cookie format is commented on `loginIfNeeded` in `tests/e2e/helpers.ts`.
