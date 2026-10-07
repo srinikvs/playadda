@@ -1,7 +1,15 @@
 import { expect, test } from "@playwright/test";
 import { totp } from "../../server/totp.mjs";
+import { injectedSessionKind } from "./injected-session.ts";
 
 const TEST_SECRET = "JBSWY3DPEHPK3PXP";
+
+test.beforeEach(() => {
+  test.skip(
+    injectedSessionKind() !== null,
+    "Injected session is set; this file types the login overlay only when no session env is set.",
+  );
+});
 
 test("invalid authenticator code stays on login", async ({ page }) => {
   await page.goto("./");

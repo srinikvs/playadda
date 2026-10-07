@@ -4,7 +4,7 @@
   "version": "1.3.0",
   "type": "module",
   "scripts": {
-    "test": "tsx --test tests/cases/catalog.test.ts && node --test server/totp.test.mjs",
+    "test": "tsx --test tests/cases/catalog.test.ts tests/injected-session.test.ts && node --test server/totp.test.mjs",
     "test:e2e": "playwright test",
     "test:e2e:pixel": "playwright test --project=pixel",
     "test:e2e:desktop": "playwright test --project=desktop",
