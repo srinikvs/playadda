@@ -98,10 +98,26 @@ export function createStore({ usersPath, scoresPath, backupDir, encKey, site, no
     atomicWriteFile(usersPath, `${JSON.stringify({ users: encryptedUsers }, null, 2)}\n`);
   }
 
-  function saveEncrypted(encryptedUsers, date = now()) {
+  function compactStamp(date = now()) {
+    const when = date instanceof Date ? date : new Date(date);
+    const iso = when.toISOString();
+    return `${iso.slice(0, 4)}${iso.slice(5, 7)}${iso.slice(8, 10)}T${iso.slice(11, 13)}${iso.slice(14, 16)}${iso.slice(17, 19)}${String(when.getUTCMilliseconds()).padStart(3, "0")}Z`;
+  }
+
+  function copyCurrentUsers(date = now()) {
+    if (!existsSync(usersPath)) return null;
+    mkdirSync(backupDir, { recursive: true, mode: 0o750 });
+    const file = join(backupDir, `users-pre-restore-${site}-${compactStamp(date)}.json`);
+    atomicWriteFile(file, readFileSync(usersPath, "utf8"));
+    return file;
+  }
+
+  function saveEncrypted(encryptedUsers, date = now(), { preserveCurrent = false } = {}) {
     return withLock(usersPath, () => {
+      const preRestore = preserveCurrent ? copyCurrentUsers(date) : null;
       writeUsers(encryptedUsers);
-      return writeBackup(encryptedUsers, date);
+      const backup = writeBackup(encryptedUsers, date);
+      return preserveCurrent ? { backup, preRestore } : backup;
     });
   }
 
@@ -197,7 +213,7 @@ export function createStore({ usersPath, scoresPath, backupDir, encKey, site, no
     replaceUsers(plainUsers) {
       requireKey();
       const encrypted = plainUsers.map((user) => encryptUser({ ...user, secret: user.secret }));
-      return saveEncrypted(encrypted);
+      return saveEncrypted(encrypted, now(), { preserveCurrent: true });
     },
     listBackups() {
       return listBackupFiles();
@@ -318,7 +334,7 @@ export function applyRestore({ file, store }) {
       secret: store.openSecret(user.secret),
     };
   });
-  store.replaceUsers(plainUsers);
+  const saved = store.replaceUsers(plainUsers);
   return {
     file,
     site: doc.site,
@@ -326,5 +342,6 @@ export function applyRestore({ file, store }) {
     names: plainUsers.map((user) => user.name),
     applied: true,
     usersPath: store.usersPath,
+    preRestore: saved.preRestore || null,
   };
 }

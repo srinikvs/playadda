@@ -13,9 +13,9 @@ index.html           portal chrome
 js/flock.js          murmur modes (ambient)
 js/portal.js         login gate, hamburger, game overlay
 server/auth.mjs      TOTP verify, session cookie, scores, admin enroll
-server/backup.mjs    nightly users.json backup
+server/backup.mjs    write a backup; rewrite users.json if a secret is still plaintext
 server/backup-verify.mjs
-                     check a backup's shape and decrypt every secret
+                     check a backup's shape and decrypt every secret (nightly job)
 server/restore.mjs   dry-run restore; --apply writes
 users.example.json   fake secrets only — do not use in production
 ```
@@ -36,16 +36,9 @@ Prod and playaddatest are separate processes. They do not share a port, users fi
 
 `PLAYADDA_AUTH_USERS_JSON` and `PLAYADDA_SCORES_JSON` are unchanged: set them to the files above. If they are unset, the process uses the directory for its site (`PORT=4174` or `PLAYADDA_SITE=test` selects playaddatest; otherwise prod). A test process refuses a path under `/var/lib/playadda/prod` or the prod files `/etc/playadda/users.json` and `/etc/playadda/scores.json`. A prod process refuses `/var/lib/playadda/test` and `users-test.json` / `scores-test.json`.
 
-The service account (www-data on the host) must be able to create and replace files in its own state directory. Saves write a temporary file in that same directory, fsync it, then rename it over the target. The same atomic save is used for `users.json` and `scores.json`. A lock file next to the target keeps two writers from replacing it at once.
+Prod and playaddatest run as separate service users, `playadda-auth` and `playadda-auth-test`, each with its own state directory. The Jenkins job `playadda-auth-host` creates those users, the directories, and the ownership. This repo does not choose the account or change ownership of `/var/lib/playadda`.
 
-```bash
-sudo mkdir -p /var/lib/playadda/prod/backups /var/lib/playadda/test/backups
-sudo chown -R www-data:www-data /var/lib/playadda
-sudo chmod 750 /var/lib/playadda /var/lib/playadda/prod /var/lib/playadda/test \
-  /var/lib/playadda/prod/backups /var/lib/playadda/test/backups
-```
-
-Files are written mode `600`. Never commit `users.json`, backups, or keys.
+Whichever user the job assigns must be able to create and replace files in its own state directory. Saves write a temporary file in that same directory, fsync it, then rename it over the target. The same atomic save is used for `users.json` and `scores.json`. A lock file next to the target keeps two writers from replacing it at once. Files are written mode `600`. Never commit `users.json`, backups, or keys.
 
 ### Environment
 
@@ -98,14 +91,9 @@ ProxyPassReverse /api/ http://127.0.0.1:4173/api/
 
 Every users change writes `users-<site>-<timestamp>-<id>.json` in `PLAYADDA_AUTH_BACKUP_DIR` and keeps the last 30. The backup is the same JSON shape as `users.json`: readable names, each `secret` encrypted with the current key. The file also records `site` (`prod` or `test`) and `createdAt`.
 
-A nightly Jenkins job on the host can run:
+`node server/backup.mjs` writes one timestamped backup. If any secret in `users.json` is still plaintext, it rewrites that file so the secret is encrypted, then writes the backup. It is not a read-only copy. The nightly Jenkins job does not run it.
 
-```bash
-node server/backup.mjs
-node server/backup-verify.mjs
-```
-
-`backup-verify` checks that the file is JSON, `site` is prod or test, every user has a name and a secret, and every secret decrypts with `PLAYADDA_AUTH_ENC_KEY`. It prints names only as a count, never the secret. Pass a file to check one backup; with no argument it checks the backup directory.
+The nightly job only runs `node server/backup-verify.mjs` and copies backup files. `backup-verify` checks that each file is JSON, `site` is prod or test, every user has a name and a secret, and every secret decrypts with `PLAYADDA_AUTH_ENC_KEY`. It prints a user count, never the secret. Pass a file to check one backup; with no argument it checks the backup directory.
 
 Restore defaults to a dry run. It refuses a backup whose `site` does not match this instance.
 
@@ -116,7 +104,7 @@ node server/restore.mjs --apply
 node server/restore.mjs --apply /var/lib/playadda/prod/backups/users-prod-20261009T120000000Z-ab12.json
 ```
 
-Dry run prints the backup path, site, user names, and `dry run: no files written`. `--apply` replaces `users.json` (atomic save) and writes a new backup of that state. Run the commands with the same environment as that instance. A site mismatch exits 2 and does not write.
+Dry run prints the backup path, site, user names, and `dry run: no files written`. `--apply` first saves a timestamped copy of the current `users.json` in the backup directory (`users-pre-restore-<site>-<timestamp>.json`), prints that path as `pre-restore=...`, then replaces `users.json` and writes a new backup of the restored state. Run the commands with the same environment as that instance. A site mismatch exits 2 and does not write.
 
 ## Scores
 

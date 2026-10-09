@@ -11,7 +11,13 @@ export function readSession(req, secret) {
   const cookie = String(req.headers?.cookie || "");
   const match = cookie.match(/(?:^|; )playadda_session=([^;]+)/);
   if (!match) return null;
-  const [body, mac] = decodeURIComponent(match[1]).split(".");
+  let decoded;
+  try {
+    decoded = decodeURIComponent(match[1]);
+  } catch {
+    return null;
+  }
+  const [body, mac] = decoded.split(".");
   if (!body || !mac) return null;
   const expected = createHmac("sha256", secret).update(body).digest("base64url");
   const a = Buffer.from(mac);

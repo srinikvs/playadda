@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -130,6 +130,10 @@ test("backup rotation keeps 30 and restore dry run does not write", () => {
   }), /backup site is test/);
   assert.throws(() => applyRestore({ file: backups.at(-1), store: prod.store }), /backup site is test/);
   assert.equal(prod.store.listPublic().length, 0);
+  const preRestoreNames = existsSync(prod.store.backupDir)
+    ? readdirSync(prod.store.backupDir).filter((name) => name.startsWith("users-pre-restore-"))
+    : [];
+  assert.deepEqual(preRestoreNames, []);
   void dir;
 });
 
@@ -139,8 +143,13 @@ test("restore --apply replaces users and rejects a bad secret", () => {
   const backup = source.store.listBackups().at(-1);
   const target = tempStore("prod");
   target.store.addUser({ name: "other", secret: "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ", createdAt: "2026-10-09T00:00:00.000Z" });
+  const before = readFileSync(target.store.usersPath, "utf8");
   const applied = applyRestore({ file: backup, store: target.store });
   assert.deepEqual(applied.names, ["veera"]);
+  assert.match(applied.preRestore, /users-pre-restore-prod-\d{8}T\d{9}Z\.json$/);
+  assert.equal(readFileSync(applied.preRestore, "utf8"), before);
+  assert.equal(before.includes("other"), true);
+  assert.equal(target.store.listBackups().includes(applied.preRestore), false);
   assert.equal(target.store.findUser("veera").secret, "JBSWY3DPEHPK3PXP");
   assert.equal(target.store.findUser("other"), null);
   const broken = JSON.parse(readFileSync(backup, "utf8"));

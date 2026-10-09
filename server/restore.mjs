@@ -30,7 +30,8 @@ try {
     process.stdout.write("dry run: no files written\n");
     process.exit(0);
   }
-  applyRestore({ file, store });
+  const applied = applyRestore({ file, store });
+  if (applied.preRestore) process.stdout.write(`pre-restore=${applied.preRestore}\n`);
   process.stdout.write(`applied users=${config.usersPath}\n`);
 } catch (err) {
   process.stderr.write(`${err.message}\n`);
