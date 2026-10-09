@@ -9,3 +9,8 @@ node_modules
 /playwright/.cache/
 users.json
 /etc/playadda/
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/.idea/

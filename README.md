@@ -69,3 +69,29 @@ npm run test:e2e
 Local e2e uses `tests/fixtures/users.json` (fake `qa` secret only) via `tests/auth-server.mjs`.
 
 CI can pass `PLAYADDA_E2E_STORAGE_STATE` (path to a Playwright storageState JSON file) or, when that is unset, `PLAYADDA_E2E_SESSION_COOKIE` (`name=value`, or a raw Cookie header such as `playadda_session=<token>; other=value`) so e2e loads a host-minted session for the `BASE_URL` origin and does not type the login overlay. `PLAYADDA_E2E_STORAGE_STATE` wins when both are set. Leave both unset for local Pixel and manual runs, which still sign in through the overlay. The host job mints the session. Do not commit storage state, cookies, or authenticator secrets. The cookie format is commented on `loginIfNeeded` in `tests/e2e/helpers.ts`.
+
+## Android APK
+
+`android/` is an offline debug app. It is not part of the Apache drop — do not rsync it to the document root, and do not package `server/`, TOTP secrets, or `users.json` into it.
+
+The APK embeds this portal (`index.html`, `js/`, `favicon.svg`) and pinned production builds of Tessera, Classic Snake, Mini Sudoku, Zip, Tango, Chassu Rider, and Pac-Man (`android/prebuilt/`, commits in `android/games.lock.json`). A WebView serves them from the APK at `https://appassets.androidplatform.net/`, so `/tessera/` and the other game paths resolve inside the app. The website `js/portal.js` login gate is unchanged. Packaging rewrites only the APK copy: the game grid opens immediately, the login overlay stays hidden, and `/api/auth` plus `/api/scores` are not called. There is no authenticator step and no live server. Game scores stay in that WebView's `localStorage` (the same keys the games already use). The manifest has no `INTERNET` permission. Requests to `playadda.duckdns.org`, `playaddatest`, shared leaderboards, and Chat Ops are not made; anything else off-device is cancelled in the WebView client. Google Fonts are vendored under `android/vendor-fonts/` and rewritten only in the packaged HTML.
+
+Requires JDK 17+ and Android SDK 35 (build-tools 35.0.0).
+
+```bash
+export ANDROID_HOME="$HOME/Android/Sdk"   # or the SDK root you installed
+cd android
+./gradlew assembleDebug
+```
+
+The debug APK is `android/app/build/outputs/apk/debug/app-debug.apk`. Install it with `adb install -r` that file. `./gradlew assembleDebug` copies the portal and rewrites font links; it does not clone the game repos.
+
+To refresh the pinned games (needs network and Node), run `python3 android/tools/refresh_games.py`, then `python3 android/tools/vendor_fonts.py` if a stylesheet URL changed.
+
+Optional check of the packaged pages, with Chromium blocked from every non-local host:
+
+```bash
+npm install
+npx playwright install chromium
+node android/tools/offline_smoke.mjs
+```

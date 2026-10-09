@@ -1,0 +1,46 @@
+{
+  "games": [
+    {
+      "name": "tessera",
+      "repo": "https://github.com/srinikvs/tessera.git",
+      "sha": "22f15bb4b68d8a221fb080f5be40d12c3598d88e",
+      "mount": "tessera"
+    },
+    {
+      "name": "tango",
+      "repo": "https://github.com/srinikvs/tango.git",
+      "sha": "644b00095f3ab36ae6469f3b9f955f475120437a",
+      "mount": "tango"
+    },
+    {
+      "name": "classic-snake",
+      "repo": "https://github.com/srinikvs/classic-snake.git",
+      "sha": "3df9e4afe2232022c2eb5b20d1b0839ee7dd00af",
+      "mount": "classic-snake"
+    },
+    {
+      "name": "chassu-rider",
+      "repo": "https://github.com/srinikvs/chassu-rider.git",
+      "sha": "08505a47301d7397efa86c4545499f2041b9bc41",
+      "mount": "chassu-rider"
+    },
+    {
+      "name": "pac-man",
+      "repo": "https://github.com/srinikvs/pac-man.git",
+      "sha": "91ce9feede6c72734bca84d7940ccbf9eff2e4e0",
+      "mount": "pacman"
+    },
+    {
+      "name": "mini-sudoku",
+      "repo": "https://github.com/srinikvs/mini-sudoku.git",
+      "sha": "5277d4ec293eb2d06327489f7f8ee901322bb81b",
+      "mount": "mini-sudoku"
+    },
+    {
+      "name": "zip",
+      "repo": "https://github.com/srinikvs/zip.git",
+      "sha": "0f2620fbdc00f8ae901bcdb8cbf0f32b05ccbcd3",
+      "mount": "zip"
+    }
+  ]
+}
