@@ -80,6 +80,13 @@ async function resolveFile(urlPath) {
 
 function startServer() {
   const server = createServer(async (req, res) => {
+    const pathOnly = (req.url || "/").split("?")[0];
+    if (pathOnly === "/api" || pathOnly.startsWith("/api/")) {
+      apiHits.push(`${req.method || "GET"} ${req.url}`);
+      res.writeHead(599, { "Content-Type": "text/plain" });
+      res.end("offline package called the API");
+      return;
+    }
     const file = await resolveFile(req.url || "/");
     if (!file) {
       res.writeHead(404, { "Content-Type": "text/plain" });
@@ -107,6 +114,7 @@ const server = await startServer();
 const { port } = server.address();
 const base = `http://127.0.0.1:${port}`;
 const external = [];
+const apiHits = [];
 let browser;
 try {
   browser = await chromium.launch();
@@ -126,9 +134,27 @@ try {
   const pageErrors = [];
   page.on("pageerror", (err) => pageErrors.push(String(err)));
 
+  const repoPortal = await readFile(path.join(repo, "js", "portal.js"), "utf8");
+  const packedPortal = await readFile(path.join(site, "js", "portal.js"), "utf8");
+  if (repoPortal.includes("/api/auth/login") && !packedPortal.includes("Packaged by android/tools/sync_web.py")) {
+    throw new Error("packaged portal.js still depends on the live login gate");
+  }
+  if (packedPortal.includes("server/auth.mjs") || packedPortal.includes("users.json")) {
+    throw new Error("packaged portal.js references auth secrets or the auth server");
+  }
+
   await page.goto(base + "/", { waitUntil: "domcontentloaded" });
   await page.getByTestId("portal-home").waitFor();
   await page.getByTestId("heading").waitFor();
+  const gate = await page.evaluate(() => ({
+    locked: document.body.classList.contains("locked"),
+    overlayHidden: document.getElementById("login-overlay")?.hidden ?? true,
+    barHidden: document.getElementById("account-bar")?.hidden ?? true,
+    homeVisible: getComputedStyle(document.querySelector("[data-testid=portal-home]")).visibility !== "hidden",
+  }));
+  if (gate.locked || !gate.overlayHidden || !gate.barHidden || !gate.homeVisible) {
+    throw new Error("offline portal is still behind the login gate: " + JSON.stringify(gate));
+  }
   await page.getByTestId("menu-btn").click();
   await page.getByTestId("murmur-drawer").waitFor();
   await page.getByTestId("menu-btn").click();
@@ -168,7 +194,10 @@ try {
   if (external.length) {
     throw new Error("offline pages requested the network:\n" + external.join("\n"));
   }
-  console.log("offline smoke passed: home, 7 games, localStorage, no external requests");
+  if (apiHits.length) {
+    throw new Error("packaged portal called /api:\n" + apiHits.join("\n"));
+  }
+  console.log("offline smoke passed: home unlocked, 7 games, localStorage, no /api, no external requests");
 } finally {
   if (browser) await browser.close();
   await new Promise((resolve) => server.close(resolve));

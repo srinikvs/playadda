@@ -7,6 +7,8 @@ node_modules
 /playwright-report/
 /blob-report/
 /playwright/.cache/
+users.json
+/etc/playadda/
 android/.gradle/
 android/build/
 android/app/build/

@@ -53,6 +53,52 @@ def rewrite_html(text: str, mapping: dict[str, str], path: Path) -> str:
     return text
 
 
+OFFLINE_PORTAL_PREFIX = """/* Packaged by android/tools/sync_web.py for the offline APK.
+   The website login gate stays in the repo. This copy does not call it. */
+(function () {
+  const nativeFetch = window.fetch ? window.fetch.bind(window) : null;
+  window.fetch = function (input, init) {
+    const url = typeof input === "string" ? input : (input && input.url) || "";
+    let path = url;
+    try {
+      path = new URL(url, "https://appassets.androidplatform.net").pathname;
+    } catch (e) { /* keep the raw value */ }
+    if (path === "/api" || path.indexOf("/api/") === 0) {
+      return Promise.resolve(new Response(JSON.stringify({ error: "offline" }), {
+        status: 404,
+        headers: { "content-type": "application/json" },
+      }));
+    }
+    if (!nativeFetch) return Promise.reject(new TypeError("Failed to fetch"));
+    return nativeFetch(input, init);
+  };
+})();
+"""
+
+OFFLINE_PORTAL_SUFFIX = """
+/* Offline APK: open the game grid without a session or a live server. */
+(function () {
+  document.body.classList.remove("locked");
+  var overlay = document.getElementById("login-overlay");
+  if (overlay) overlay.hidden = true;
+  var bar = document.getElementById("account-bar");
+  if (bar) bar.hidden = true;
+})();
+"""
+
+
+def patch_offline_portal(portal: Path) -> None:
+    """Drop the live authenticator gate from the packaged portal only."""
+    if not portal.is_file():
+        raise SystemExit(f"missing portal script {portal}")
+    text = portal.read_text(encoding="utf-8")
+    if "login-overlay" not in text and "/api/auth/" not in text:
+        return
+    if text.startswith("/* Packaged by android/tools/sync_web.py"):
+        return
+    portal.write_text(OFFLINE_PORTAL_PREFIX + text + OFFLINE_PORTAL_SUFFIX, encoding="utf-8")
+
+
 def copy_tree(src: Path, dest: Path) -> None:
     if dest.exists():
         shutil.rmtree(dest)
@@ -85,6 +131,7 @@ def main() -> int:
             raise SystemExit(f"missing portal file {src}")
         shutil.copy2(src, out / name)
     shutil.copytree(repo / "js", out / "js")
+    patch_offline_portal(out / "js" / "portal.js")
 
     prebuilt = android / "prebuilt"
     for mount in MOUNTS:

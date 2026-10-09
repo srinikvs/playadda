@@ -76,6 +76,8 @@ npm run test:e2e          # pixel catalog + desktop home smoke
 
 Set `CI=1` so Playwright uses the CI reporter, retries once, and does not reuse an existing static server. For live playaddatest or prod smoke, export `BASE_URL` to that host’s portal root.
 
+To reuse a host-minted session, export `PLAYADDA_E2E_STORAGE_STATE` (Playwright storageState path) or `PLAYADDA_E2E_SESSION_COOKIE` (`name=value` or a raw Cookie header, injected for the `BASE_URL` origin). The format comment is on `loginIfNeeded` in `tests/e2e/helpers.ts`. With both unset, local Pixel e2e still signs in through the overlay.
+
 ## Catalog (A–C)
 
 | id | Layer | Gate | Coverage |
