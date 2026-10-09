@@ -45,7 +45,7 @@ export default defineConfig({
     },
     {
       name: "desktop",
-      testMatch: /desktop\.catalog\.spec\.ts|auth\.spec\.ts/,
+      testMatch: /desktop\.catalog\.spec\.ts|auth\.spec\.ts|enroll\.spec\.ts/,
       use: {
         viewport: { width: 1280, height: 800 },
         isMobile: false,
