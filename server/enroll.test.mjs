@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { createAuthServer } from "./auth.mjs";
+import { enrollPageHtml } from "./enroll-page.mjs";
 import { createEnrollment, otpauthUrl } from "./enroll.mjs";
 import { parseEncKey } from "./secret-box.mjs";
 import { signSession } from "./session.mjs";
@@ -46,6 +47,20 @@ function capture(fn) {
     process.stderr.write = stderr;
   }
 }
+
+function enrollMarkup(html) {
+  return html.slice(html.indexOf("<body"), html.indexOf("<script"));
+}
+
+test("fresh enroll HTML has no authenticator link or setup key", () => {
+  const html = enrollPageHtml();
+  const markup = enrollMarkup(html);
+  assert.equal(html.includes("otpauth://"), false);
+  assert.equal(markup.includes("enroll-otpauth"), false);
+  assert.equal(markup.includes("<a"), false);
+  assert.equal(markup.includes('href="#"'), false);
+  assert.doesNotMatch(markup, /id="enroll-secret"[^>]*value=/);
+});
 
 test("enrollment shows a 160-bit secret once and saves only after the code matches", () => {
   const { store, enrollment } = harness();
@@ -156,6 +171,9 @@ test("admin routes require an admin session and never return stored secrets", as
     const page = await call("/admin/enroll", { name: "srini" });
     assert.equal(page.status, 200);
     assert.match(page.text, /data-testid="enroll-name"/);
+    assert.equal(page.text.includes("otpauth://"), false);
+    assert.equal(enrollMarkup(page.text).includes("enroll-otpauth"), false);
+    assert.equal(enrollMarkup(page.text).includes("<a"), false);
     const setup = await call("/api/admin/enroll", { method: "POST", name: "srini", body: { name: "New User" } });
     assert.equal(setup.status, 200);
     assert.match(setup.json.otpauth, /^otpauth:\/\/totp\/Playadda:New%20User\?/);

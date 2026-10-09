@@ -47,7 +47,7 @@ export function enrollPageHtml() {
     <p id="error" class="error" data-testid="enroll-error" role="alert"></p>
     <section id="setup" data-testid="enroll-setup" hidden>
       <div id="qr" data-testid="enroll-qr"></div>
-      <p><a class="otpauth" id="otpauth" data-testid="enroll-otpauth" href="#">Add to authenticator</a></p>
+      <p id="otpauth-row"></p>
       <label for="enroll-secret">Setup key</label>
       <input id="enroll-secret" class="key" data-testid="enroll-secret" readonly>
       <div class="row">
@@ -75,14 +75,42 @@ export function enrollPageHtml() {
       if (!res.ok) throw new Error(body.error || "Request failed");
       return body;
     }
+    let expiryTimer = 0;
+    function clearSecretMaterial() {
+      if (expiryTimer) {
+        clearTimeout(expiryTimer);
+        expiryTimer = 0;
+      }
+      document.getElementById("qr").replaceChildren();
+      document.getElementById("otpauth-row").replaceChildren();
+      const key = document.getElementById("enroll-secret");
+      key.value = "";
+      key.removeAttribute("value");
+      document.getElementById("enroll-code").value = "";
+    }
     function hideSetup() {
       setup.hidden = true;
-      document.getElementById("qr").replaceChildren();
-      const link = document.getElementById("otpauth");
-      link.removeAttribute("href");
+      clearSecretMaterial();
+    }
+    function showSetup(body) {
+      clearSecretMaterial();
+      document.getElementById("qr").innerHTML = body.qrSvg;
+      const link = document.createElement("a");
+      link.className = "otpauth";
+      link.id = "otpauth";
+      link.dataset.testid = "enroll-otpauth";
+      link.href = body.otpauth;
       link.textContent = "Add to authenticator";
-      document.getElementById("enroll-secret").value = "";
-      document.getElementById("enroll-code").value = "";
+      document.getElementById("otpauth-row").append(link);
+      document.getElementById("enroll-secret").value = body.secret;
+      setup.hidden = false;
+      const expiresAt = Date.parse(body.expiresAt);
+      if (Number.isFinite(expiresAt)) {
+        expiryTimer = setTimeout(() => {
+          hideSetup();
+          setError("Setup expired. Create a new one.");
+        }, Math.max(0, expiresAt - Date.now()));
+      }
     }
     function renderUsers(list) {
       users.replaceChildren();
@@ -128,12 +156,7 @@ export function enrollPageHtml() {
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ name: document.getElementById("enroll-name").value }),
         });
-        document.getElementById("qr").innerHTML = body.qrSvg;
-        const link = document.getElementById("otpauth");
-        link.href = body.otpauth;
-        link.textContent = "Add to authenticator";
-        document.getElementById("enroll-secret").value = body.secret;
-        setup.hidden = false;
+        showSetup(body);
       } catch (err) { setError(err.message); }
     });
     document.getElementById("copy").addEventListener("click", async () => {
@@ -157,7 +180,10 @@ export function enrollPageHtml() {
         success.textContent = body.name + " is enrolled. The setup key is no longer available.";
         document.getElementById("enroll-name").value = "";
         await refresh();
-      } catch (err) { setError(err.message); }
+      } catch (err) {
+        setError(err.message);
+        if (/expired/i.test(err.message)) hideSetup();
+      }
     });
     refresh().catch((err) => setError(err.message));
   </script>

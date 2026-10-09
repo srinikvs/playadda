@@ -43,6 +43,8 @@ export async function ensureHooks(page: Page): Promise<void> {
  *   HttpOnly, Secure only on https).
  *
  * With both unset, the overlay login below is unchanged (local Pixel / manual).
+ * This session is the signed-in portal user (qa in CI). It is not an admin.
+ * Admin enroll e2e uses PLAYADDA_E2E_ADMIN_STORAGE_STATE only.
  */
 export async function loginIfNeeded(page: Page): Promise<void> {
   if (injectedSessionKind() !== null) {
