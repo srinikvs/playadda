@@ -6,7 +6,6 @@ import { fileURLToPath } from "node:url";
 import vm from "node:vm";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
-const KOYA_CAP = 20;
 
 function loadCreateSim() {
   const sandbox = {
@@ -105,7 +104,7 @@ function assertSpread(sim, sample, label) {
   assert.ok(sample.sx >= sim.w * 0.14, `${label}: x spread ${sample.sx.toFixed(1)}px`);
   assert.ok(sample.sy >= sim.h * 0.14, `${label}: y spread ${sample.sy.toFixed(1)}px`);
   assert.ok(sample.edge <= 0.2, `${label}: ${Math.round(sample.edge * 100)}% of fish on the glass`);
-  assert.ok(sim.agents.length <= KOYA_CAP);
+  assert.equal(sim.agents.length, 100);
 }
 
 test("Koya stay spread with no pointer and after pointer interaction", () => {
@@ -115,7 +114,7 @@ test("Koya stay spread with no pointer and after pointer interaction", () => {
   ];
 
   for (const [w, h, name] of views) {
-    const sim = createSim({ width: w, height: h, mode: "koya", count: 20 });
+    const sim = createSim({ width: w, height: h, mode: "koya", count: 100 });
     clump(sim, w / 2, h / 2);
     run(sim, 8);
     assertSpread(sim, averagedSpread(sim), `${name} idle`);
@@ -138,7 +137,7 @@ test("Koya stay spread with no pointer and after pointer interaction", () => {
     run(sim, 5);
     assertSpread(sim, averagedSpread(sim), `${name} after pointer leaves`);
 
-    const resting = createSim({ width: w, height: h, mode: "koya", count: 20 });
+    const resting = createSim({ width: w, height: h, mode: "koya", count: 100 });
     clump(resting, w * 0.28, h * 0.55);
     for (let i = 0; i < 50; i++) {
       const t = (i + 1) / 30;

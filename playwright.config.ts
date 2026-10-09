@@ -33,7 +33,7 @@ export default defineConfig({
   projects: [
     {
       name: "pixel",
-      testMatch: /pixel\.catalog\.spec\.ts/,
+      testMatch: /pixel\.catalog\.spec\.ts|murmur-count\.spec\.ts/,
       use: {
         viewport: { width: 412, height: 915 },
         deviceScaleFactor: 2.625,
@@ -45,7 +45,7 @@ export default defineConfig({
     },
     {
       name: "desktop",
-      testMatch: /desktop\.catalog\.spec\.ts|auth\.spec\.ts|enroll\.spec\.ts/,
+      testMatch: /desktop\.catalog\.spec\.ts|auth\.spec\.ts|enroll\.spec\.ts|murmur-count\.spec\.ts/,
       use: {
         viewport: { width: 1280, height: 800 },
         isMobile: false,

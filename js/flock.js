@@ -1,5 +1,10 @@
+const COUNT_MIN = 1;
+const COUNT_MAX = 200;
+const DEFAULT_COUNT = 100;
+const MODES = ["cursors", "koya", "diwali"];
 const DEFAULTS = {
-  count: 180,
+  count: DEFAULT_COUNT,
+  counts: { cursors: DEFAULT_COUNT, koya: DEFAULT_COUNT, diwali: DEFAULT_COUNT },
   speed: 140,
   separation: 1.35,
   alignment: 1,
@@ -9,17 +14,53 @@ const DEFAULTS = {
   mode: "cursors",
 };
 const KEY = "murmur.params";
-const MODES = ["cursors", "koya", "diwali"];
-const CAP = { cursors: 400, koya: 20, diwali: 20 };
 const STILL_S = 2;
+
+function clampCount(count) {
+  const n = Math.round(Number(count));
+  if (!Number.isFinite(n)) return DEFAULT_COUNT;
+  return Math.min(COUNT_MAX, Math.max(COUNT_MIN, n));
+}
+
+function parseCountInput(raw) {
+  const text = String(raw ?? "").trim();
+  if (!/^[0-9]+$/.test(text)) return { ok: false, error: "Enter a whole number." };
+  const n = Number(text);
+  const count = Math.min(COUNT_MAX, Math.max(COUNT_MIN, n));
+  return { ok: true, count, clamped: count !== n };
+}
+
+function freshCounts() {
+  return { cursors: DEFAULT_COUNT, koya: DEFAULT_COUNT, diwali: DEFAULT_COUNT };
+}
+
+function normalizeCounts(raw) {
+  const counts = freshCounts();
+  const source = raw && typeof raw === "object" ? raw : {};
+  if (source.counts && typeof source.counts === "object") {
+    for (const mode of MODES) {
+      if (source.counts[mode] != null) counts[mode] = clampCount(source.counts[mode]);
+    }
+    return counts;
+  }
+  if (source.count != null) {
+    const shared = clampCount(source.count);
+    for (const mode of MODES) counts[mode] = shared;
+  }
+  return counts;
+}
 
 function loadParams() {
   try {
     const raw = localStorage.getItem(KEY);
-    if (!raw) return { ...DEFAULTS };
-    return { ...DEFAULTS, ...JSON.parse(raw) };
+    const parsed = raw ? JSON.parse(raw) : {};
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return { ...DEFAULTS, counts: freshCounts() };
+    const params = { ...DEFAULTS, ...parsed, counts: normalizeCounts(parsed) };
+    params.mode = MODES.includes(params.mode) ? params.mode : "cursors";
+    params.count = params.counts[params.mode];
+    return params;
   } catch {
-    return { ...DEFAULTS };
+    return { ...DEFAULTS, counts: freshCounts() };
   }
 }
 function saveParams(p) {
@@ -34,20 +75,18 @@ function wrapDelta(d, size) {
 function isUiTarget(target) {
   return target instanceof Element && Boolean(target.closest("button, input, a, label, select, textarea, [data-ui]"));
 }
-function clampCount(mode, count) {
-  return Math.max(mode === "cursors" ? 20 : 4, Math.min(CAP[mode], Math.round(count)));
-}
-
 function createSim(opts) {
   const sim = {
     w: opts.width, h: opts.height,
     mode: MODES.includes(opts.mode) ? opts.mode : "cursors",
     speed: opts.speed, separation: opts.separation, alignment: opts.alignment,
     cohesion: opts.cohesion, avoid: opts.avoid,
-    requestedCount: opts.count, agents: [], sparks: [], bursts: [],
+    counts: normalizeCounts({ count: opts.count, counts: opts.counts }),
+    requestedCount: 0, agents: [], sparks: [], bursts: [],
     pointer: { x: 0, y: 0, on: false, lastMove: -STILL_S, panic: 0 },
     time: 0,
   };
+  sim.requestedCount = sim.counts[sim.mode];
   function spawnCursor() {
     const a = rand(0, Math.PI * 2);
     const s = sim.speed * rand(0.7, 1.1);
@@ -79,7 +118,9 @@ function createSim(opts) {
     }
   }
   function fill() {
-    const n = clampCount(sim.mode, sim.requestedCount);
+    const n = clampCount(sim.requestedCount);
+    sim.requestedCount = n;
+    sim.counts[sim.mode] = n;
     sim.agents = [];
     for (let i = 0; i < n; i++) sim.agents.push(sim.mode === "koya" ? spawnFish() : sim.mode === "diwali" ? spawnRocket() : spawnCursor());
   }
@@ -87,16 +128,24 @@ function createSim(opts) {
   sim.setMode = (mode) => {
     if (!MODES.includes(mode) || mode === sim.mode) return sim.mode;
     sim.mode = mode;
+    sim.requestedCount = sim.counts[mode];
     sim.sparks = [];
     fill();
     return sim.mode;
   };
-  sim.setCount = (n) => {
-    sim.requestedCount = n;
-    const target = clampCount(sim.mode, n);
+  sim.setCount = (n, rebuild = false) => {
+    const target = clampCount(n);
+    sim.requestedCount = target;
+    sim.counts[sim.mode] = target;
+    if (rebuild) {
+      sim.sparks = [];
+      fill();
+      return target;
+    }
     const spawn = sim.mode === "koya" ? spawnFish : sim.mode === "diwali" ? spawnRocket : spawnCursor;
     while (sim.agents.length < target) sim.agents.push(spawn());
     if (sim.agents.length > target) sim.agents.length = target;
+    return target;
   };
   sim.resize = (w, h) => { sim.w = w; sim.h = h; };
   sim.setPointer = (x, y, time = sim.time, moving = true) => {
@@ -110,7 +159,7 @@ function createSim(opts) {
     if (i < 0) return;
     burst(agent.x, agent.y, agent.hue ?? 28, reason);
     sim.agents.splice(i, 1);
-    if (sim.mode === "diwali" && sim.agents.length < clampCount(sim.mode, sim.requestedCount)) sim.agents.push(spawnRocket());
+    if (sim.mode === "diwali" && sim.agents.length < clampCount(sim.requestedCount)) sim.agents.push(spawnRocket());
   };
   sim.blastAt = (x, y) => {
     for (const a of [...sim.agents]) if (a.kind === "rocket" && Math.hypot(a.x - x, a.y - y) < 42) sim.explode(a, "pointer");
@@ -352,7 +401,7 @@ function createSim(opts) {
     else tickCursors(step);
     sim.sparks = sim.sparks.filter((s) => { s.life -= step; s.x += s.vx * step; s.y += s.vy * step; s.vy += 36 * step; return s.life > 0; });
     if (sim.pointer.panic > 0) sim.pointer.panic = Math.max(0, sim.pointer.panic - step);
-    if (sim.agents.length > CAP[sim.mode]) sim.agents.length = CAP[sim.mode];
+    if (sim.agents.length > COUNT_MAX) sim.agents.length = COUNT_MAX;
   };
   fill();
   return sim;
@@ -398,33 +447,74 @@ function ensureModes(sim, params) {
     '<label><input id="mode-cursors" data-testid="mode-cursors" data-mode="cursors" data-ui type="checkbox"> Cursors</label>' +
     '<label><input id="mode-koya" data-testid="mode-koya" data-mode="koya" data-ui type="checkbox"> Koya fish</label>' +
     '<label><input id="mode-diwali" data-testid="mode-diwali" data-mode="diwali" data-ui type="checkbox"> Diwali rockets</label>' +
+    '<div class="count-row"><label for="mode-count">Count</label><input id="mode-count" data-testid="mode-count" data-ui type="text" inputmode="numeric" autocomplete="off" enterkeyhint="done" aria-describedby="mode-count-msg"><button type="button" id="mode-count-apply" data-testid="mode-count-apply" data-ui>Apply</button></div>' +
+    '<p class="count-msg" id="mode-count-msg" data-testid="mode-count-msg"></p>' +
     '<p class="hint" id="mode-hint"></p>';
   drawer.insertBefore(box, drawer.querySelector(".panel-head")?.nextSibling || drawer.firstChild);
   if (!document.getElementById("murmur-mode-style")) {
     const style = document.createElement("style");
     style.id = "murmur-mode-style";
-    style.textContent = ".modes{border:1px solid var(--line);border-radius:12px;padding:.45rem .7rem .55rem;margin:0 0 .8rem}.modes legend{padding:0 .3rem;color:var(--accent);font-size:.72rem;letter-spacing:.08em;text-transform:uppercase}.modes label{display:flex;align-items:center;gap:.45rem;min-height:36px;font-size:.8rem}.modes input{accent-color:var(--accent)}";
+    style.textContent = ".modes{border:1px solid var(--line);border-radius:12px;padding:.45rem .7rem .55rem;margin:0 0 .8rem}.modes legend{padding:0 .3rem;color:var(--accent);font-size:.72rem;letter-spacing:.08em;text-transform:uppercase}.modes label{display:flex;align-items:center;gap:.45rem;min-height:36px;font-size:.8rem}.modes input{accent-color:var(--accent)}.modes .count-row{display:flex;align-items:center;flex-wrap:wrap;gap:.4rem;min-height:44px;font-size:.8rem}.modes .count-row input{width:4.75rem;min-width:0;min-height:36px;border-radius:8px;border:1px solid var(--line);background:#07080c;color:var(--text);padding:0 .45rem;font:inherit}.modes .count-row button{min-height:36px;border-radius:999px;border:1px solid var(--line);background:#1a1d24;color:var(--text);padding:0 .75rem;font:inherit}.modes .count-msg{min-height:1.05em;margin:.15rem 0 .2rem;font-size:.72rem;color:var(--muted)}.modes .count-msg[data-state=invalid]{color:#ffb4b4}";
     document.head.appendChild(style);
+  }
+  const countInput = document.getElementById("mode-count");
+  const countMsg = document.getElementById("mode-count-msg");
+  function syncCountField() {
+    if (!countInput) return;
+    countInput.value = String(sim.counts[sim.mode]);
+    const slider = document.getElementById("pop");
+    const sliderVal = document.getElementById("pop-val");
+    if (slider) slider.value = String(sim.counts[sim.mode]);
+    if (sliderVal) sliderVal.textContent = String(sim.counts[sim.mode]);
+    params.count = sim.counts[sim.mode];
+    params.counts = { ...sim.counts };
+  }
+  function applyCount() {
+    const parsed = parseCountInput(countInput.value);
+    if (!parsed.ok) {
+      if (countMsg) {
+        countMsg.dataset.state = "invalid";
+        countMsg.textContent = parsed.error;
+      }
+      return;
+    }
+    sim.setCount(parsed.count, true);
+    params.counts[sim.mode] = sim.counts[sim.mode];
+    params.count = sim.counts[sim.mode];
+    saveParams(params);
+    syncCountField();
+    if (countMsg) {
+      countMsg.dataset.state = parsed.clamped ? "clamped" : "";
+      countMsg.textContent = parsed.clamped ? `Using ${parsed.count}. Count stays between ${COUNT_MIN} and ${COUNT_MAX}.` : "";
+    }
   }
   function sync() {
     for (const mode of MODES) {
       const el = document.getElementById(`mode-${mode}`);
       if (el) el.checked = sim.mode === mode;
     }
+    syncCountField();
     const hint = document.getElementById("mode-hint");
     if (hint) hint.textContent = sim.mode === "koya"
-      ? "Koya cozy into a moving pointer, then disperse after 2s still. Max 20."
+      ? "Koya follow a moving pointer, then spread after 2s still. Count is 1–200 so a phone can keep the pond smooth."
       : sim.mode === "diwali"
-        ? "Rockets burst at an edge or on pointer contact. Max 20."
-        : "Cursors avoid the pointer.";
+        ? "Rockets burst at an edge or on pointer contact. Count is 1–200."
+        : "Cursors avoid the pointer. Count is 1–200.";
   }
   box.querySelectorAll("[data-mode]").forEach((el) => {
     el.addEventListener("change", () => {
       if (!el.checked) { el.checked = true; return; }
       params.mode = sim.setMode(el.getAttribute("data-mode"));
+      params.counts = { ...sim.counts };
+      params.count = sim.counts[sim.mode];
       saveParams(params);
+      if (countMsg) { countMsg.dataset.state = ""; countMsg.textContent = ""; }
       sync();
     });
+  });
+  document.getElementById("mode-count-apply")?.addEventListener("click", applyCount);
+  countInput?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); applyCount(); }
   });
   sync();
 }
@@ -437,21 +527,32 @@ function bindSlider(sim, params, id, key) {
   out.textContent = key === "count" || key === "speed" ? String(Math.round(params[key])) : Number(params[key]).toFixed(2);
   el.addEventListener("input", () => {
     const v = Number(el.value);
-    params[key] = v;
-    sim[key] = v;
-    out.textContent = key === "count" || key === "speed" ? String(Math.round(v)) : v.toFixed(2);
-    if (key === "count") sim.setCount(v);
+    const applied = key === "count" ? sim.setCount(v) : v;
+    if (key === "count") {
+      params.count = applied;
+      params.counts[sim.mode] = applied;
+      const field = document.getElementById("mode-count");
+      if (field) field.value = String(applied);
+    } else {
+      params[key] = v;
+      sim[key] = v;
+    }
+    out.textContent = key === "count" || key === "speed" ? String(Math.round(key === "count" ? applied : v)) : v.toFixed(2);
     saveParams(params);
   });
 }
 
 window.createSim = createSim;
+window.parseMurmurCount = parseCountInput;
+window.clampMurmurCount = clampCount;
+window.loadMurmurParams = loadParams;
+window.saveMurmurParams = saveParams;
+window.MURMUR_COUNT = { min: COUNT_MIN, max: COUNT_MAX, defaultCount: DEFAULT_COUNT };
 window.startMurmur = function startMurmur(canvas) {
   const params = loadParams();
-  if (window.innerWidth < 600) params.count = Math.min(params.count, 110);
   const sim = createSim({
     width: window.innerWidth, height: window.innerHeight,
-    mode: params.mode, count: params.count, speed: params.speed,
+    mode: params.mode, count: params.count, counts: params.counts, speed: params.speed,
     separation: params.separation, alignment: params.alignment,
     cohesion: params.cohesion, avoid: params.avoid,
   });
