@@ -12,35 +12,111 @@ Apache document root for static files. TOTP verify is a small Node route on the 
 index.html           portal chrome
 js/flock.js          murmur modes (ambient)
 js/portal.js         login gate, hamburger, game overlay
-server/auth.mjs      TOTP verify, session cookie, scores
+server/auth.mjs      TOTP verify, session cookie, scores, admin enroll
+server/backup.mjs    nightly users.json backup
+server/backup-verify.mjs
+                     check a backup's shape and decrypt every secret
+server/restore.mjs   dry-run restore; --apply writes
 users.example.json   fake secrets only — do not use in production
 ```
 
-## Auth secrets (do not commit)
+## Auth, enrollment, and backups
 
-Copy `users.example.json` to a path outside the repo, replace the fake secret, and `chmod 600` it. On Builder that path is `/etc/playadda/users.json`. Never commit the real file.
+Prod and playaddatest are separate processes. They do not share a port, users file, scores file, backup directory, session secret, or encryption key.
+
+| | prod | playaddatest |
+|---|---|---|
+| Port | 4173 | 4174 |
+| State directory | `/var/lib/playadda/prod/` | `/var/lib/playadda/test/` |
+| `PLAYADDA_AUTH_USERS_JSON` | `/var/lib/playadda/prod/users.json` | `/var/lib/playadda/test/users.json` |
+| `PLAYADDA_SCORES_JSON` | `/var/lib/playadda/prod/scores.json` | `/var/lib/playadda/test/scores.json` |
+| `PLAYADDA_AUTH_BACKUP_DIR` | `/var/lib/playadda/prod/backups` | `/var/lib/playadda/test/backups` |
+| `PLAYADDA_SITE` | `prod` | `test` |
+| Admins | `PLAYADDA_AUTH_ADMINS` (for example `veera,srini`) | `srini` |
+
+`PLAYADDA_AUTH_USERS_JSON` and `PLAYADDA_SCORES_JSON` are unchanged: set them to the files above. If they are unset, the process uses the directory for its site (`PORT=4174` or `PLAYADDA_SITE=test` selects playaddatest; otherwise prod). A test process refuses a path under `/var/lib/playadda/prod` or the prod files `/etc/playadda/users.json` and `/etc/playadda/scores.json`. A prod process refuses `/var/lib/playadda/test` and `users-test.json` / `scores-test.json`.
+
+The service account (www-data on the host) must be able to create and replace files in its own state directory. Saves write a temporary file in that same directory, fsync it, then rename it over the target. The same atomic save is used for `users.json` and `scores.json`. A lock file next to the target keeps two writers from replacing it at once.
 
 ```bash
-sudo mkdir -p /etc/playadda
-sudo cp users.example.json /etc/playadda/users.json
-sudo chmod 600 /etc/playadda/users.json
-# edit /etc/playadda/users.json with real base32 TOTP secrets
-export PLAYADDA_AUTH_USERS_JSON=/etc/playadda/users.json
+sudo mkdir -p /var/lib/playadda/prod/backups /var/lib/playadda/test/backups
+sudo chown -R www-data:www-data /var/lib/playadda
+sudo chmod 750 /var/lib/playadda /var/lib/playadda/prod /var/lib/playadda/test \
+  /var/lib/playadda/prod/backups /var/lib/playadda/test/backups
+```
+
+Files are written mode `600`. Never commit `users.json`, backups, or keys.
+
+### Environment
+
+| Variable | Role |
+|---|---|
+| `PLAYADDA_AUTH_SECRET` | HMAC key for the HttpOnly session cookie. Login returns 503 if it is unset. |
+| `PLAYADDA_AUTH_USERS_JSON` | Users file. Names stay readable. Only each user's `secret` is encrypted. |
+| `PLAYADDA_SCORES_JSON` | Scores file. Not encrypted. |
+| `PLAYADDA_AUTH_ENC_KEY` | Base64 of 32 random bytes. AES-256-GCM key for each secret field. |
+| `PLAYADDA_AUTH_BACKUP_DIR` | Directory for timestamped user backups. |
+| `PLAYADDA_AUTH_ADMINS` | Comma-separated display names allowed to open `/admin/enroll`. Example: `veera,srini`. On playaddatest set `srini`. |
+| `PLAYADDA_SITE` | `prod` or `test`. Overrides the port when both are set. Recorded in every backup. |
+| `PORT` | `4173` prod, `4174` playaddatest. |
+| `PLAYADDA_SESSION_TTL` | Session lifetime in seconds. Default 12 hours. |
+
+Generate a key with `openssl rand -base64 32`. Prod and playaddatest need different `PLAYADDA_AUTH_SECRET` and `PLAYADDA_AUTH_ENC_KEY` values.
+
+```bash
+export PLAYADDA_SITE=prod
+export PORT=4173
+export PLAYADDA_AUTH_USERS_JSON=/var/lib/playadda/prod/users.json
+export PLAYADDA_SCORES_JSON=/var/lib/playadda/prod/scores.json
+export PLAYADDA_AUTH_BACKUP_DIR=/var/lib/playadda/prod/backups
 export PLAYADDA_AUTH_SECRET="$(openssl rand -hex 32)"
-export PLAYADDA_SCORES_JSON=/etc/playadda/scores.json
+export PLAYADDA_AUTH_ENC_KEY="$(openssl rand -base64 32)"
+export PLAYADDA_AUTH_ADMINS=veera,srini
 node server/auth.mjs
 ```
 
-`PLAYADDA_AUTH_SECRET` signs the HttpOnly session cookie. Without it, login returns 503. Lookup is case-insensitive trim. Codes are RFC 6238, 6 digits, ±1 step.
+Playaddatest is the same list with `PLAYADDA_SITE=test`, `PORT=4174`, the `/var/lib/playadda/test` paths, its own secrets, and `PLAYADDA_AUTH_ADMINS=srini`.
 
-Apache can keep serving the static tree and proxy only the API:
+If `PLAYADDA_AUTH_ENC_KEY` is missing, existing plaintext users can still sign in. Enrollment, backup, and restore refuse to run, and the process logs that the key is not set. It does not write a new plaintext secret. A key that is not base64 of 32 bytes stops the process at startup. On startup, when the key is set and a stored secret is still plaintext, the next save encrypts it (the startup migration is that save) and writes a backup. Login keeps working for those users either way. Encrypted secrets cannot be checked without the key; that user's login returns 503 `authenticator store is locked` and other users are unaffected.
+
+Lookup is case-insensitive trim. Codes are RFC 6238, 6 digits, ±1 step. Secrets and codes are not written to logs.
+
+### Enrollment
+
+`/admin/enroll` and `/api/admin/*` require a signed-in session whose display name is in `PLAYADDA_AUTH_ADMINS`. Anyone else gets 401 or 403. The admin enters a display name. The server keeps a random base32 secret of 160 bits in memory for about 10 minutes and returns, once, a QR code for `otpauth://totp/Playadda:<name>?secret=...&issuer=Playadda`, an Add to authenticator link with that same URL, and the setup key. The user enters the first 6-digit code. Only a matching code appends `{name, secret, createdAt}` to `users.json`. A reload or a later list shows names only. Duplicate names are refused. The admin can remove a user. Removing and confirming both take a backup.
+
+Apache can keep serving the static tree and proxy the API. Prod proxies to 4173 and the playaddatest vhost proxies to 4174. Do not point both vhosts at the same process.
 
 ```
 ProxyPass /api/ http://127.0.0.1:4173/api/
 ProxyPassReverse /api/ http://127.0.0.1:4173/api/
 ```
 
-Or run `server/auth.mjs` as the host process; it also serves the static files. This PR does not deploy or change Jenkins.
+`/admin/enroll` has to be served by the auth process (it checks the session before sending the page). Proxy that path as well, or run `server/auth.mjs` as the host process. Jenkins deploys this. This repo does not SSH or rsync.
+
+### Backup, verify, and restore
+
+Every users change writes `users-<site>-<timestamp>-<id>.json` in `PLAYADDA_AUTH_BACKUP_DIR` and keeps the last 30. The backup is the same JSON shape as `users.json`: readable names, each `secret` encrypted with the current key. The file also records `site` (`prod` or `test`) and `createdAt`.
+
+A nightly Jenkins job on the host can run:
+
+```bash
+node server/backup.mjs
+node server/backup-verify.mjs
+```
+
+`backup-verify` checks that the file is JSON, `site` is prod or test, every user has a name and a secret, and every secret decrypts with `PLAYADDA_AUTH_ENC_KEY`. It prints names only as a count, never the secret. Pass a file to check one backup; with no argument it checks the backup directory.
+
+Restore defaults to a dry run. It refuses a backup whose `site` does not match this instance.
+
+```bash
+node server/restore.mjs
+node server/restore.mjs /var/lib/playadda/test/backups/users-test-20261009T120000000Z-ab12.json
+node server/restore.mjs --apply
+node server/restore.mjs --apply /var/lib/playadda/prod/backups/users-prod-20261009T120000000Z-ab12.json
+```
+
+Dry run prints the backup path, site, user names, and `dry run: no files written`. `--apply` replaces `users.json` (atomic save) and writes a new backup of that state. Run the commands with the same environment as that instance. A site mismatch exits 2 and does not write.
 
 ## Scores
 
@@ -58,6 +134,8 @@ parent.postMessage({ type: "playadda:score", game: "tessera", score: 120 }, loca
 2. Wrong name or code: error, stay on login.
 3. Name from the external JSON plus a current authenticator code: grid unlocks, account bar shows your best and overall high score.
 4. `window.playadda.submitScore("portal", 10)` raises that user's best. A higher score from another account updates overall.
+5. Signed out, or signed in as someone not listed in `PLAYADDA_AUTH_ADMINS`: `/admin/enroll` is 401 or 403.
+6. As an admin (`srini` on playaddatest): enter a new name. The page shows a QR code, an Add to authenticator link, and a setup key. Enter the current 6-digit code. The user appears by name. Reload: the QR, link, and key are gone. A second enroll of that name is refused. Remove deletes the name.
 
 ```bash
 npm install
@@ -66,6 +144,6 @@ npx playwright install --with-deps chromium
 npm run test:e2e
 ```
 
-Local e2e uses `tests/fixtures/users.json` (fake `qa` secret only) via `tests/auth-server.mjs`.
+Local e2e copies `tests/fixtures/users.json` (fake `qa` secret only) to `test-results/` and runs it as a test instance via `tests/auth-server.mjs`, with `PLAYADDA_AUTH_ADMINS=srini`. The enroll spec signs an admin session the same way Jenkins injects `PLAYADDA_E2E_STORAGE_STATE` (that variable wins when it is set).
 
 CI can pass `PLAYADDA_E2E_STORAGE_STATE` (path to a Playwright storageState JSON file) or, when that is unset, `PLAYADDA_E2E_SESSION_COOKIE` (`name=value`, or a raw Cookie header such as `playadda_session=<token>; other=value`) so e2e loads a host-minted session for the `BASE_URL` origin and does not type the login overlay. `PLAYADDA_E2E_STORAGE_STATE` wins when both are set. Leave both unset for local Pixel and manual runs, which still sign in through the overlay. The host job mints the session. Do not commit storage state, cookies, or authenticator secrets. The cookie format is commented on `loginIfNeeded` in `tests/e2e/helpers.ts`.

@@ -2,6 +2,18 @@ import { createHmac } from "node:crypto";
 
 const ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
 
+export function base32Encode(input) {
+  const buf = Buffer.isBuffer(input) ? input : Buffer.from(input);
+  let bits = "";
+  for (const byte of buf) bits += byte.toString(2).padStart(8, "0");
+  let out = "";
+  for (let i = 0; i < bits.length; i += 5) {
+    const chunk = bits.slice(i, i + 5).padEnd(5, "0");
+    out += ALPHABET[parseInt(chunk, 2)];
+  }
+  return out;
+}
+
 export function base32Decode(input) {
   const clean = String(input || "").toUpperCase().replace(/=+$/g, "").replace(/\s/g, "");
   let bits = "";
