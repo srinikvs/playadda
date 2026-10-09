@@ -55,7 +55,17 @@ function createSim(opts) {
   }
   function spawnFish() {
     const ang = rand(0, Math.PI * 2);
-    return { kind: "koya", x: rand(48, Math.max(49, sim.w - 48)), y: rand(48, Math.max(49, sim.h - 48)), vx: Math.cos(ang) * 36, vy: Math.sin(ang) * 36, hue: rand(168, 198) };
+    return {
+      kind: "koya",
+      x: rand(48, Math.max(49, sim.w - 48)),
+      y: rand(48, Math.max(49, sim.h - 48)),
+      vx: Math.cos(ang) * 36,
+      vy: Math.sin(ang) * 36,
+      hue: rand(168, 198),
+      heading: ang,
+      turn: rand(-0.7, 0.7),
+      nextTurn: rand(0.6, 2.2),
+    };
   }
   function spawnRocket() {
     return { kind: "rocket", x: rand(40, Math.max(41, sim.w - 40)), y: sim.h - rand(28, 90), vx: rand(-26, 26), vy: -rand(100, 168), hue: rand(8, 46) };
@@ -126,6 +136,12 @@ function createSim(opts) {
       a.vy += (dy / m) * 280;
     }
   };
+  sim.meanDistanceToPointer = () => {
+    if (!sim.agents.length) return 0;
+    let s = 0;
+    for (const a of sim.agents) s += Math.hypot(a.x - sim.pointer.x, a.y - sim.pointer.y);
+    return s / sim.agents.length;
+  };
   function tickCursors(dt) {
     const maxSpeed = sim.speed;
     const minSpeed = maxSpeed * 0.35;
@@ -170,20 +186,154 @@ function createSim(opts) {
     }
   }
   function tickKoya(dt) {
+    const fishList = sim.agents;
+    const n = fishList.length;
+    if (!n) return;
+
+    // Cozy only while a pointer is actually moving. Stillness (2s) and
+    // pointer-up both return to dispersal. Spacing is a fraction of the
+    // pond's even-spread distance so the school fills the water. A constant
+    // flee from the pointer is intentionally not used: it pinned every fish
+    // to the far edge.
     const cozy = sim.pointer.on && !sim.still();
-    for (const fish of sim.agents) {
-      let fx = 0, fy = 0;
-      const dx = sim.pointer.x - fish.x;
-      const dy = sim.pointer.y - fish.y;
-      const d = Math.hypot(dx, dy) || 1;
-      if (cozy) { const pull = Math.min(240, 50 + d * 0.9); fx += (dx / d) * pull; fy += (dy / d) * pull; }
-      else { fx -= (dx / d) * 170; fy -= (dy / d) * 170; }
-      fish.vx += fx * dt; fish.vy += fy * dt;
-      const spd = Math.hypot(fish.vx, fish.vy) || 1;
-      const cap = cozy ? 160 : 100;
-      if (spd > cap) { fish.vx = (fish.vx / spd) * cap; fish.vy = (fish.vy / spd) * cap; }
-      fish.x = Math.max(8, Math.min(sim.w - 8, fish.x + fish.vx * dt));
-      fish.y = Math.max(8, Math.min(sim.h - 8, fish.y + fish.vy * dt));
+    const ideal = Math.sqrt((sim.w * sim.h) / n);
+    const range = cozy ? Math.min(72, Math.max(40, ideal * 0.36)) : ideal * 0.9;
+    const sepStrength = cozy ? 140 : 260;
+    const margin = Math.min(88, Math.max(36, Math.min(sim.w, sim.h) * 0.16));
+    const span = Math.hypot(sim.w, sim.h);
+    const cruise = cozy
+      ? Math.min(150, Math.max(96, span * 0.11))
+      : Math.min(124, Math.max(54, span * 0.072));
+    const speedCap = (cozy ? Math.min(190, Math.max(165, cruise)) : Math.max(100, cruise * 1.45))
+      * (sim.pointer.panic > 0 ? 1.65 : 1);
+    const ax = new Array(n);
+    const ay = new Array(n);
+
+    for (let i = 0; i < n; i++) {
+      const fish = fishList[i];
+      if (fish.heading == null || !Number.isFinite(fish.heading)) {
+        fish.heading = Math.atan2(fish.vy || 0, fish.vx || 1);
+      }
+      if (fish.nextTurn == null) fish.nextTurn = 0;
+      if (sim.time >= fish.nextTurn) {
+        fish.turn = rand(-0.8, 0.8);
+        fish.nextTurn = sim.time + rand(1.2, 3.2);
+      }
+      fish.heading += (fish.turn || 0) * dt;
+
+      let fx = 0;
+      let fy = 0;
+      for (let j = 0; j < n; j++) {
+        if (i === j) continue;
+        const other = fishList[j];
+        const dx = other.x - fish.x;
+        const dy = other.y - fish.y;
+        const dist = Math.hypot(dx, dy);
+        if (dist < 0.5) {
+          const ang = fish.heading + j;
+          fx -= Math.cos(ang) * sepStrength;
+          fy -= Math.sin(ang) * sepStrength;
+          continue;
+        }
+        if (dist < range) {
+          const closeness = 1 - dist / range;
+          const mag = sepStrength * closeness * closeness;
+          fx -= (dx / dist) * mag;
+          fy -= (dy / dist) * mag;
+        }
+      }
+
+      // While following, the pointer pull leads and each fish keeps its own
+      // heading. Cruise steering stays weak so those headings are still
+      // different when the pull lets go and the school spreads back out.
+      const steer = cozy ? 0.45 : 2.15;
+      fx += (Math.cos(fish.heading) * cruise - fish.vx) * steer;
+      fy += (Math.sin(fish.heading) * cruise - fish.vy) * steer;
+
+      if (sim.pointer.on) {
+        const dx = sim.pointer.x - fish.x;
+        const dy = sim.pointer.y - fish.y;
+        const dist = Math.hypot(dx, dy) || 1;
+        if (cozy) {
+          const standoff = 48;
+          if (dist > standoff) {
+            const pull = Math.min(420, 180 + (dist - standoff) * 1.2);
+            fx += (dx / dist) * pull;
+            fy += (dy / dist) * pull;
+          }
+        } else {
+          // Short-range only: leave the resting pointer, then pond spacing
+          // takes over. A pond-wide flee collapses the school onto the wall.
+          const fleeR = Math.min(180, Math.max(130, ideal * 1.15));
+          if (dist < fleeR) {
+            const closeness = 1 - dist / fleeR;
+            const mag = 460 * closeness * closeness;
+            fx -= (dx / dist) * mag;
+            fy -= (dy / dist) * mag;
+          }
+        }
+      }
+
+      const accel = Math.hypot(fx, fy);
+      const accelCap = 440;
+      if (accel > accelCap) {
+        fx *= accelCap / accel;
+        fy *= accelCap / accel;
+      }
+
+      // Applied after the cap so a crowded edge still turns fish back
+      // before they reach the glass.
+      const wall = 720;
+      if (fish.x < margin) {
+        const depth = 1 - fish.x / margin;
+        fx += depth * depth * wall;
+      } else if (fish.x > sim.w - margin) {
+        const depth = 1 - (sim.w - fish.x) / margin;
+        fx -= depth * depth * wall;
+      }
+      if (fish.y < margin) {
+        const depth = 1 - fish.y / margin;
+        fy += depth * depth * wall;
+      } else if (fish.y > sim.h - margin) {
+        const depth = 1 - (sim.h - fish.y) / margin;
+        fy -= depth * depth * wall;
+      }
+
+      ax[i] = fx;
+      ay[i] = fy;
+    }
+
+    const drag = Math.exp(-0.4 * dt);
+    const inset = 10;
+    for (let i = 0; i < n; i++) {
+      const fish = fishList[i];
+      fish.vx = (fish.vx + ax[i] * dt) * drag;
+      fish.vy = (fish.vy + ay[i] * dt) * drag;
+      let spd = Math.hypot(fish.vx, fish.vy);
+      if (spd > speedCap) {
+        fish.vx = (fish.vx / spd) * speedCap;
+        fish.vy = (fish.vy / spd) * speedCap;
+        spd = speedCap;
+      } else if (spd > 0 && spd < cruise * 0.35) {
+        fish.vx = (fish.vx / spd) * cruise * 0.35;
+        fish.vy = (fish.vy / spd) * cruise * 0.35;
+      }
+      fish.x += fish.vx * dt;
+      fish.y += fish.vy * dt;
+      if (fish.x < inset) {
+        fish.x = inset;
+        if (fish.vx < 0) fish.vx *= -0.4;
+      } else if (fish.x > sim.w - inset) {
+        fish.x = sim.w - inset;
+        if (fish.vx > 0) fish.vx *= -0.4;
+      }
+      if (fish.y < inset) {
+        fish.y = inset;
+        if (fish.vy < 0) fish.vy *= -0.4;
+      } else if (fish.y > sim.h - inset) {
+        fish.y = sim.h - inset;
+        if (fish.vy > 0) fish.vy *= -0.4;
+      }
     }
   }
   function tickRockets(dt) {
@@ -295,6 +445,7 @@ function bindSlider(sim, params, id, key) {
   });
 }
 
+window.createSim = createSim;
 window.startMurmur = function startMurmur(canvas) {
   const params = loadParams();
   if (window.innerWidth < 600) params.count = Math.min(params.count, 110);
