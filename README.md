@@ -123,7 +123,7 @@ parent.postMessage({ type: "playadda:score", game: "tessera", score: 120 }, loca
 3. Name from the external JSON plus a current authenticator code: grid unlocks, account bar shows your best and overall high score.
 4. `window.playadda.submitScore("portal", 10)` raises that user's best. A higher score from another account updates overall.
 5. Signed out, or signed in as someone not listed in `PLAYADDA_AUTH_ADMINS`: `/admin/enroll` is 401 or 403.
-6. As an admin (`srini` on playaddatest): enter a new name. The page shows a QR code, an Add to authenticator link, and a setup key. Enter the current 6-digit code. The user appears by name. Reload: the QR, link, and key are gone. A second enroll of that name is refused. Remove deletes the name.
+6. As an admin (`srini` on playaddatest): enter a new name. The page shows a QR code, an Add to authenticator link, and a setup key. Enter the current 6-digit code. The user appears by name. Reload, or wait until an unconfirmed setup expires: the page source has no `otpauth://` link and no setup key. A second enroll of that name is refused. Remove deletes the name.
 
 ```bash
 npm install
@@ -132,6 +132,6 @@ npx playwright install --with-deps chromium
 npm run test:e2e
 ```
 
-Local e2e copies `tests/fixtures/users.json` (fake `qa` secret only) to `test-results/` and runs it as a test instance via `tests/auth-server.mjs`, with `PLAYADDA_AUTH_ADMINS=srini`. The enroll spec signs an admin session the same way Jenkins injects `PLAYADDA_E2E_STORAGE_STATE` (that variable wins when it is set).
+Local e2e copies `tests/fixtures/users.json` (fake `qa` secret only) to `test-results/` and runs it as a test instance via `tests/auth-server.mjs`, with `PLAYADDA_AUTH_ADMINS=srini`. With no `BASE_URL`, the enroll spec signs its own admin session for that local server. It does not treat the Jenkins session as an admin.
 
-CI can pass `PLAYADDA_E2E_STORAGE_STATE` (path to a Playwright storageState JSON file) or, when that is unset, `PLAYADDA_E2E_SESSION_COOKIE` (`name=value`, or a raw Cookie header such as `playadda_session=<token>; other=value`) so e2e loads a host-minted session for the `BASE_URL` origin and does not type the login overlay. `PLAYADDA_E2E_STORAGE_STATE` wins when both are set. Leave both unset for local Pixel and manual runs, which still sign in through the overlay. The host job mints the session. Do not commit storage state, cookies, or authenticator secrets. The cookie format is commented on `loginIfNeeded` in `tests/e2e/helpers.ts`.
+CI can pass `PLAYADDA_E2E_STORAGE_STATE` (path to a Playwright storageState JSON file) or, when that is unset, `PLAYADDA_E2E_SESSION_COOKIE` (`name=value`, or a raw Cookie header such as `playadda_session=<token>; other=value`) so e2e loads a host-minted session for the `BASE_URL` origin and does not type the login overlay. `PLAYADDA_E2E_STORAGE_STATE` wins when both are set. On playadda-ci that session is `qa`, which is not an admin: `/admin/enroll` is 403 and the response has no QR, `otpauth://` link, or setup key. A separate `PLAYADDA_E2E_ADMIN_STORAGE_STATE` (storageState JSON for an admin) opts into the enroll happy path against a remote `BASE_URL`. CI does not set it. Leave the session variables unset for local Pixel and manual runs, which still sign in through the overlay. The host job mints the session. Do not commit storage state, cookies, or authenticator secrets. The cookie format is commented on `loginIfNeeded` in `tests/e2e/helpers.ts`.

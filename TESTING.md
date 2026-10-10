@@ -76,7 +76,30 @@ npm run test:e2e          # pixel catalog + desktop home smoke
 
 Set `CI=1` so Playwright uses the CI reporter, retries once, and does not reuse an existing static server. For live playaddatest or prod smoke, export `BASE_URL` to that host’s portal root.
 
-To reuse a host-minted session, export `PLAYADDA_E2E_STORAGE_STATE` (Playwright storageState path) or `PLAYADDA_E2E_SESSION_COOKIE` (`name=value` or a raw Cookie header, injected for the `BASE_URL` origin). The format comment is on `loginIfNeeded` in `tests/e2e/helpers.ts`. With both unset, local Pixel e2e still signs in through the overlay.
+To reuse a host-minted session, export `PLAYADDA_E2E_STORAGE_STATE` (Playwright storageState path) or `PLAYADDA_E2E_SESSION_COOKIE` (`name=value` or a raw Cookie header, injected for the `BASE_URL` origin). The format comment is on `loginIfNeeded` in `tests/e2e/helpers.ts`. With both unset, local Pixel e2e still signs in through the overlay. That injected session is the portal user (`qa` on playadda-ci), not an admin.
+
+`tests/e2e/enroll.spec.ts` against a remote `BASE_URL` checks three cases:
+
+- A fresh browser context with no cookies expects 401 on `/admin/enroll`.
+- The injected session expects 403, and the response must not include a QR, an `otpauth://` link, or a setup key.
+- The admin happy path runs only when `PLAYADDA_E2E_ADMIN_STORAGE_STATE` points at an admin storageState file. CI does not set that. A local run with no `BASE_URL` signs the admin fixture itself (`srini`).
+
+Reproduce the playadda-ci enroll case against the local auth server (start `node tests/auth-server.mjs` first; a remote `BASE_URL` does not launch it):
+
+```bash
+node --input-type=module -e '
+import { writeFileSync } from "node:fs";
+import { signSession } from "./server/session.mjs";
+const token = signSession({ name: "qa", exp: Date.now() + 3600000 }, "playadda-test-only-session-secret");
+writeFileSync("/tmp/playadda-qa-storage.json", JSON.stringify({
+  cookies: [{ name: "playadda_session", value: token, domain: "127.0.0.1", path: "/", expires: -1, httpOnly: true, secure: false, sameSite: "Lax" }],
+  origins: [],
+}));
+'
+BASE_URL=http://127.0.0.1:4173 PLAYADDA_E2E_STORAGE_STATE=/tmp/playadda-qa-storage.json npx playwright test tests/e2e/enroll.spec.ts
+```
+
+Anonymous expects 401. The injected `qa` session expects 403. The admin test is skipped. Do not export `PLAYADDA_E2E_ADMIN_STORAGE_STATE` for this check.
 
 ## Catalog (A–C)
 
