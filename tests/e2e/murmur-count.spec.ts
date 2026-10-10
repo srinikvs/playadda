@@ -56,6 +56,11 @@ test("mode count rebuilds the scene and survives a reload", async ({ page }) => 
   await expect(page.getByTestId("mode-count-msg")).toContainText(/whole number/i);
   expect((await scene(page)).count).toBe(100);
 
+  await page.getByTestId("mode-count").fill("-5");
+  await page.getByTestId("mode-count-apply").click();
+  await expect(page.getByTestId("mode-count-msg")).toHaveText("Enter a number from 1 to 200");
+  expect((await scene(page)).count).toBe(100);
+
   await page.getByTestId("mode-count").fill("12.5");
   await page.getByTestId("mode-count-apply").click();
   expect((await scene(page)).count).toBe(100);
@@ -72,4 +77,28 @@ test("mode count rebuilds the scene and survives a reload", async ({ page }) => 
   await expect(page.getByTestId("mode-count")).toHaveValue("200");
   await page.getByTestId("mode-cursors").check();
   await waitForScene(page, (state) => state.mode === "cursors" && state.count === 40);
+});
+
+test("an old flock slider value still opens at 100 per mode", async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem("murmur.params", JSON.stringify({
+      count: 180,
+      mode: "cursors",
+      counts: { cursors: 180, koya: 180, diwali: 180 },
+    }));
+  });
+  await openFresh(page);
+  await waitForScene(page, (state) => state.count > 0);
+  expect(await scene(page)).toMatchObject({ mode: "cursors", count: 100 });
+  await openMenu(page);
+  await expect(page.getByTestId("mode-count")).toHaveValue("100");
+  await expect(page.locator("#pop")).toHaveValue("100");
+
+  await page.getByTestId("mode-koya").check();
+  await waitForScene(page, (state) => state.mode === "koya" && state.count === 100);
+  await expect(page.getByTestId("mode-count")).toHaveValue("100");
+
+  await page.getByTestId("mode-diwali").check();
+  await waitForScene(page, (state) => state.mode === "diwali" && state.count === 100);
+  await expect(page.getByTestId("mode-count")).toHaveValue("100");
 });

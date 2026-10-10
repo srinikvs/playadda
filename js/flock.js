@@ -14,6 +14,7 @@ const DEFAULTS = {
   mode: "cursors",
 };
 const KEY = "murmur.params";
+const COUNTS_VERSION = 2;
 const STILL_S = 2;
 
 function clampCount(count) {
@@ -24,28 +25,39 @@ function clampCount(count) {
 
 function parseCountInput(raw) {
   const text = String(raw ?? "").trim();
-  if (!/^[0-9]+$/.test(text)) return { ok: false, error: "Enter a whole number." };
-  const n = Number(text);
-  const count = Math.min(COUNT_MAX, Math.max(COUNT_MIN, n));
-  return { ok: true, count, clamped: count !== n };
+  if (/^[0-9]+$/.test(text)) {
+    const n = Number(text);
+    const count = Math.min(COUNT_MAX, Math.max(COUNT_MIN, n));
+    return { ok: true, count, clamped: count !== n };
+  }
+  if (/^-\d+$/.test(text)) return { ok: false, error: "Enter a number from 1 to 200" };
+  return { ok: false, error: "Enter a whole number." };
 }
 
 function freshCounts() {
   return { cursors: DEFAULT_COUNT, koya: DEFAULT_COUNT, diwali: DEFAULT_COUNT };
 }
 
-function normalizeCounts(raw) {
+function countsFromOptions(opts = {}) {
   const counts = freshCounts();
-  const source = raw && typeof raw === "object" ? raw : {};
-  if (source.counts && typeof source.counts === "object") {
+  if (opts.counts && typeof opts.counts === "object") {
     for (const mode of MODES) {
-      if (source.counts[mode] != null) counts[mode] = clampCount(source.counts[mode]);
+      if (opts.counts[mode] != null) counts[mode] = clampCount(opts.counts[mode]);
     }
     return counts;
   }
-  if (source.count != null) {
-    const shared = clampCount(source.count);
-    for (const mode of MODES) counts[mode] = shared;
+  if (opts.count != null) {
+    const n = clampCount(opts.count);
+    for (const mode of MODES) counts[mode] = n;
+  }
+  return counts;
+}
+
+function readStoredCounts(parsed) {
+  const counts = freshCounts();
+  if (!parsed || parsed.countsVersion !== COUNTS_VERSION || !parsed.counts || typeof parsed.counts !== "object") return counts;
+  for (const mode of MODES) {
+    if (parsed.counts[mode] != null) counts[mode] = clampCount(parsed.counts[mode]);
   }
   return counts;
 }
@@ -54,17 +66,31 @@ function loadParams() {
   try {
     const raw = localStorage.getItem(KEY);
     const parsed = raw ? JSON.parse(raw) : {};
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return { ...DEFAULTS, counts: freshCounts() };
-    const params = { ...DEFAULTS, ...parsed, counts: normalizeCounts(parsed) };
-    params.mode = MODES.includes(params.mode) ? params.mode : "cursors";
-    params.count = params.counts[params.mode];
-    return params;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return { ...DEFAULTS, counts: freshCounts(), countsVersion: COUNTS_VERSION };
+    }
+    const counts = readStoredCounts(parsed);
+    const mode = MODES.includes(parsed.mode) ? parsed.mode : "cursors";
+    return {
+      ...DEFAULTS,
+      ...parsed,
+      mode,
+      counts,
+      countsVersion: COUNTS_VERSION,
+      count: counts[mode],
+    };
   } catch {
-    return { ...DEFAULTS, counts: freshCounts() };
+    return { ...DEFAULTS, counts: freshCounts(), countsVersion: COUNTS_VERSION };
   }
 }
 function saveParams(p) {
-  try { localStorage.setItem(KEY, JSON.stringify(p)); } catch { /* ignore */ }
+  try {
+    const mode = MODES.includes(p.mode) ? p.mode : "cursors";
+    const counts = freshCounts();
+    for (const name of MODES) counts[name] = clampCount(p.counts?.[name]);
+    const stored = { ...p, mode, counts, countsVersion: COUNTS_VERSION, count: counts[mode] };
+    localStorage.setItem(KEY, JSON.stringify(stored));
+  } catch { /* ignore */ }
 }
 function rand(a, b) { return a + Math.random() * (b - a); }
 function wrapDelta(d, size) {
@@ -81,7 +107,7 @@ function createSim(opts) {
     mode: MODES.includes(opts.mode) ? opts.mode : "cursors",
     speed: opts.speed, separation: opts.separation, alignment: opts.alignment,
     cohesion: opts.cohesion, avoid: opts.avoid,
-    counts: normalizeCounts({ count: opts.count, counts: opts.counts }),
+    counts: countsFromOptions(opts),
     requestedCount: 0, agents: [], sparks: [], bursts: [],
     pointer: { x: 0, y: 0, on: false, lastMove: -STILL_S, panic: 0 },
     time: 0,
@@ -107,7 +133,15 @@ function createSim(opts) {
     };
   }
   function spawnRocket() {
-    return { kind: "rocket", x: rand(40, Math.max(41, sim.w - 40)), y: sim.h - rand(28, 90), vx: rand(-26, 26), vy: -rand(100, 168), hue: rand(8, 46) };
+    const margin = 36;
+    return {
+      kind: "rocket",
+      x: rand(margin, Math.max(margin + 1, sim.w - margin)),
+      y: rand(margin, Math.max(margin + 1, sim.h - margin)),
+      vx: rand(-36, 36),
+      vy: -rand(70, 150),
+      hue: rand(8, 46),
+    };
   }
   function burst(x, y, hue, reason) {
     sim.bursts.push({ x, y, hue, reason, t: sim.time });
