@@ -75,6 +75,7 @@ test("each mode defaults to 100 and a saved count is loaded next time", () => {
   assert.equal(fresh.counts.cursors, 100);
   assert.equal(fresh.counts.koya, 100);
   assert.equal(fresh.counts.diwali, 100);
+  assert.equal(fresh.counts.halloween, 100);
   assert.equal(fresh.count, 100);
   assert.equal(fresh.mode, "cursors");
 
@@ -221,4 +222,112 @@ function assertRocketField(sim, label) {
   const variance = placed.reduce((sum, rocket) => sum + (rocket.y - mean) ** 2, 0) / placed.length;
   assert.ok(Math.sqrt(variance) >= sim.h * 0.12, `${label} y spread ${Math.sqrt(variance).toFixed(1)}`);
   assert.ok(bottom / placed.length < 0.45, `${label} ${bottom} rockets on the bottom`);
+}
+
+test("halloween keeps its own count and splits lanterns and bats", () => {
+  const storage = memoryStorage({
+    "murmur.params": JSON.stringify({
+      countsVersion: 2,
+      mode: "koya",
+      counts: { cursors: 12, koya: 30, diwali: 80 },
+    }),
+  });
+  const loaded = loadFlock(storage);
+  const params = loaded.loadMurmurParams();
+  assert.equal(params.counts.cursors, 12);
+  assert.equal(params.counts.koya, 30);
+  assert.equal(params.counts.diwali, 80);
+  assert.equal(params.counts.halloween, 100);
+
+  params.mode = "halloween";
+  params.counts.halloween = 40;
+  params.count = 40;
+  loaded.saveMurmurParams(params);
+  const again = loadFlock(storage).loadMurmurParams();
+  assert.equal(again.mode, "halloween");
+  assert.equal(again.counts.halloween, 40);
+  assert.equal(again.counts.cursors, 12);
+  assert.equal(again.counts.koya, 30);
+  assert.equal(again.counts.diwali, 80);
+  assert.equal(again.count, 40);
+
+  const { createSim } = loadFlock(memoryStorage());
+  const sim = createSim({ width: 412, height: 915, mode: "halloween", count: 100, speed: 140 });
+  assertSplit(sim, 100);
+  const kept = sim.agents.find((agent) => agent.kind === "lantern");
+  assert.equal(sim.setCount(120), 120);
+  assertSplit(sim, 120);
+  assert.ok(sim.agents.some((agent) => agent === kept));
+  assert.equal(sim.setCount(200, true), 200);
+  assertSplit(sim, 200);
+  assert.equal(sim.setCount(7, true), 7);
+  assertSplit(sim, 7);
+  assert.equal(sim.setCount(1, true), 1);
+  assertSplit(sim, 1);
+
+  assert.equal(sim.setMode("cursors"), "cursors");
+  assert.equal(sim.agents.length, 100);
+  assert.ok(sim.agents.every((agent) => agent.kind === "cursor"));
+});
+
+test("halloween lanterns flicker independently and bats move on their own paths", () => {
+  const { createSim } = loadFlock(memoryStorage());
+  const sim = createSim({ width: 412, height: 915, mode: "halloween", count: 100, speed: 140 });
+  const lanterns = sim.agents.filter((agent) => agent.kind === "lantern");
+  const bats = sim.agents.filter((agent) => agent.kind === "bat");
+  assert.equal(lanterns.length, 50);
+  assert.equal(bats.length, 50);
+  assert.ok(lanterns.some((lantern) => lantern.on));
+  assert.ok(lanterns.some((lantern) => !lantern.on));
+
+  const nextTimes = lanterns.map((lantern) => lantern.next);
+  const onFor = lanterns.map((lantern) => lantern.onFor);
+  assert.ok(Math.max(...nextTimes) - Math.min(...nextTimes) > 0.2);
+  assert.ok(Math.max(...onFor) - Math.min(...onFor) > 0.2);
+  const xs = lanterns.map((lantern) => lantern.x);
+  const ys = lanterns.map((lantern) => lantern.y);
+  assert.ok(Math.max(...xs) - Math.min(...xs) > sim.w * 0.55);
+  assert.ok(Math.max(...ys) - Math.min(...ys) > sim.h * 0.55);
+  const planted = lanterns.map((lantern) => [lantern.x, lantern.y]);
+
+  const before = lanterns.map((lantern) => lantern.on);
+  let mixed = false;
+  for (let i = 0; i < 90 && !mixed; i++) {
+    sim.tick(1 / 30);
+    let changed = 0;
+    for (let j = 0; j < lanterns.length; j++) if (lanterns[j].on !== before[j]) changed++;
+    if (changed > 0 && changed < lanterns.length) mixed = true;
+  }
+  assert.ok(mixed, "lanterns toggled together");
+  lanterns.forEach((lantern, i) => {
+    assert.equal(lantern.x, planted[i][0]);
+    assert.equal(lantern.y, planted[i][1]);
+  });
+
+  const speeds = bats.map((bat) => bat.speed);
+  assert.ok(Math.max(...speeds) - Math.min(...speeds) > 20);
+  const start = bats.map((bat) => [bat.x, bat.y]);
+  for (let i = 0; i < 45; i++) sim.tick(1 / 30);
+  let moved = 0;
+  for (let i = 0; i < bats.length; i++) {
+    const dist = Math.hypot(bats[i].x - start[i][0], bats[i].y - start[i][1]);
+    if (dist > 12) moved++;
+    assert.ok(bats[i].x >= 10 && bats[i].x <= sim.w - 10, `bat x ${bats[i].x}`);
+    assert.ok(bats[i].y >= 10 && bats[i].y <= sim.h - 10, `bat y ${bats[i].y}`);
+  }
+  assert.ok(moved >= bats.length * 0.8, `${moved} bats moved`);
+  lanterns.forEach((lantern, i) => {
+    assert.equal(lantern.x, planted[i][0]);
+    assert.equal(lantern.y, planted[i][1]);
+  });
+});
+
+function assertSplit(sim, count) {
+  const lanterns = Math.floor(count / 2);
+  const bats = count - lanterns;
+  const gotLanterns = sim.agents.filter((agent) => agent.kind === "lantern").length;
+  const gotBats = sim.agents.filter((agent) => agent.kind === "bat").length;
+  assert.equal(sim.agents.length, count);
+  assert.equal(gotLanterns, lanterns);
+  assert.equal(gotBats, bats);
 }

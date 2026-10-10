@@ -1,10 +1,10 @@
 const COUNT_MIN = 1;
 const COUNT_MAX = 200;
 const DEFAULT_COUNT = 100;
-const MODES = ["cursors", "koya", "diwali"];
+const MODES = ["cursors", "koya", "diwali", "halloween"];
 const DEFAULTS = {
   count: DEFAULT_COUNT,
-  counts: { cursors: DEFAULT_COUNT, koya: DEFAULT_COUNT, diwali: DEFAULT_COUNT },
+  counts: { cursors: DEFAULT_COUNT, koya: DEFAULT_COUNT, diwali: DEFAULT_COUNT, halloween: DEFAULT_COUNT },
   speed: 140,
   separation: 1.35,
   alignment: 1,
@@ -35,7 +35,7 @@ function parseCountInput(raw) {
 }
 
 function freshCounts() {
-  return { cursors: DEFAULT_COUNT, koya: DEFAULT_COUNT, diwali: DEFAULT_COUNT };
+  return { cursors: DEFAULT_COUNT, koya: DEFAULT_COUNT, diwali: DEFAULT_COUNT, halloween: DEFAULT_COUNT };
 }
 
 function countsFromOptions(opts = {}) {
@@ -222,11 +222,71 @@ function createSim(opts) {
     }
     return rocket;
   }
+  function spawnLantern() {
+    const margin = 28;
+    return {
+      kind: "lantern",
+      x: rand(margin, Math.max(margin + 1, sim.w - margin)),
+      y: rand(margin, Math.max(margin + 1, sim.h - margin)),
+      vx: 0,
+      vy: 0,
+      on: Math.random() < 0.55,
+      next: sim.time + rand(0.12, 1.7),
+      onFor: rand(0.28, 1.7),
+      offFor: rand(0.08, 0.62),
+      face: Math.floor(rand(0, 3)),
+      size: rand(13, 20),
+    };
+  }
+  function spawnBat() {
+    const margin = 30;
+    const heading = rand(0, Math.PI * 2);
+    const speed = rand(46, 128);
+    return {
+      kind: "bat",
+      x: rand(margin, Math.max(margin + 1, sim.w - margin)),
+      y: rand(margin, Math.max(margin + 1, sim.h - margin)),
+      heading,
+      speed,
+      vx: Math.cos(heading) * speed,
+      vy: Math.sin(heading) * speed,
+      flap: rand(0, Math.PI * 2),
+      flapSpeed: rand(7, 16),
+      weave: rand(0.6, 2.4),
+      turn: rand(0.8, 2.2),
+      phase: rand(0, Math.PI * 2),
+    };
+  }
+  function placeHalloween(n) {
+    sim.agents = [];
+    const lanterns = Math.floor(n / 2);
+    for (let i = 0; i < lanterns; i++) sim.agents.push(spawnLantern());
+    for (let i = 0; i < n - lanterns; i++) sim.agents.push(spawnBat());
+  }
+  function rebalanceHalloween(n) {
+    const lanterns = [];
+    const bats = [];
+    for (const agent of sim.agents) {
+      if (agent.kind === "lantern") lanterns.push(agent);
+      else if (agent.kind === "bat") bats.push(agent);
+    }
+    const wantLanterns = Math.floor(n / 2);
+    const wantBats = n - wantLanterns;
+    while (lanterns.length > wantLanterns) lanterns.pop();
+    while (bats.length > wantBats) bats.pop();
+    while (lanterns.length < wantLanterns) lanterns.push(spawnLantern());
+    while (bats.length < wantBats) bats.push(spawnBat());
+    sim.agents = lanterns.concat(bats);
+  }
   function fill() {
     const n = clampCount(sim.requestedCount);
     sim.requestedCount = n;
     sim.counts[sim.mode] = n;
     sim.agents = [];
+    if (sim.mode === "halloween") {
+      placeHalloween(n);
+      return;
+    }
     for (let i = 0; i < n; i++) sim.agents.push(sim.mode === "koya" ? spawnFish() : sim.mode === "diwali" ? spawnRocket() : spawnCursor());
   }
   sim.still = () => sim.time - sim.pointer.lastMove >= STILL_S;
@@ -245,6 +305,10 @@ function createSim(opts) {
     if (rebuild) {
       sim.sparks = [];
       fill();
+      return target;
+    }
+    if (sim.mode === "halloween") {
+      rebalanceHalloween(target);
       return target;
     }
     const spawn = sim.mode === "koya" ? spawnFish : sim.mode === "diwali" ? spawnRocket : spawnCursor;
@@ -275,6 +339,10 @@ function createSim(opts) {
     sim.pointer.panic = 0.7;
     if (sim.mode === "diwali") {
       for (const a of [...sim.agents]) sim.explode(a, "pointer");
+      return;
+    }
+    if (sim.mode === "halloween") {
+      for (const agent of sim.agents) if (agent.kind === "bat") agent.heading += rand(-1.2, 1.2);
       return;
     }
     const cx = sim.pointer.on ? sim.pointer.x : sim.w / 2;
@@ -519,11 +587,45 @@ function createSim(opts) {
       }
     }
   }
+  function tickHalloween(dt) {
+    const inset = 20;
+    for (const agent of sim.agents) {
+      if (agent.kind === "lantern") {
+        if (sim.time >= agent.next) {
+          agent.on = !agent.on;
+          agent.next = sim.time + (agent.on ? agent.onFor : agent.offFor);
+        }
+        continue;
+      }
+      if (agent.kind !== "bat") continue;
+      agent.heading += Math.sin(sim.time * agent.weave + agent.phase) * agent.turn * dt;
+      agent.flap += agent.flapSpeed * dt;
+      agent.x += Math.cos(agent.heading) * agent.speed * dt;
+      agent.y += Math.sin(agent.heading) * agent.speed * dt;
+      if (agent.x < inset) {
+        agent.x = inset;
+        agent.heading = Math.PI - agent.heading;
+      } else if (agent.x > sim.w - inset) {
+        agent.x = sim.w - inset;
+        agent.heading = Math.PI - agent.heading;
+      }
+      if (agent.y < inset) {
+        agent.y = inset;
+        agent.heading = -agent.heading;
+      } else if (agent.y > sim.h - inset) {
+        agent.y = sim.h - inset;
+        agent.heading = -agent.heading;
+      }
+      agent.vx = Math.cos(agent.heading) * agent.speed;
+      agent.vy = Math.sin(agent.heading) * agent.speed;
+    }
+  }
   sim.tick = (dt, time) => {
     const step = Math.min(0.05, dt);
     sim.time = time ?? sim.time + step;
     if (sim.mode === "koya") tickKoya(step);
     else if (sim.mode === "diwali") tickRockets(step);
+    else if (sim.mode === "halloween") tickHalloween(step);
     else tickCursors(step);
     sim.sparks = sim.sparks.filter((s) => { s.life -= step; s.x += s.vx * step; s.y += s.vy * step; s.vy += 36 * step; return s.life > 0; });
     if (sim.pointer.panic > 0) sim.pointer.panic = Math.max(0, sim.pointer.panic - step);
@@ -533,13 +635,122 @@ function createSim(opts) {
   return sim;
 }
 
+const NIGHT = "#100818";
+
+function drawNight(ctx, sim) {
+  if (!sim.sky || sim.sky.w !== sim.w || sim.sky.h !== sim.h) {
+    const stars = [];
+    for (let i = 0; i < 42; i++) {
+      stars.push({
+        x: Math.random() * sim.w,
+        y: Math.random() * sim.h * 0.78,
+        r: Math.random() < 0.18 ? 1.3 : 0.7,
+      });
+    }
+    sim.sky = { w: sim.w, h: sim.h, stars };
+  }
+  ctx.fillStyle = "rgba(232, 228, 214, 0.8)";
+  for (const star of sim.sky.stars) ctx.fillRect(star.x, star.y, star.r, star.r);
+  const mx = sim.w * 0.8;
+  const my = Math.min(78, sim.h * 0.12);
+  ctx.fillStyle = "#f3e2b0";
+  ctx.beginPath();
+  ctx.arc(mx, my, 16, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = NIGHT;
+  ctx.beginPath();
+  ctx.arc(mx + 7, my - 2, 13, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawLantern(ctx, lantern) {
+  const s = lantern.size || 16;
+  if (lantern.on) {
+    ctx.fillStyle = "rgba(255, 150, 40, 0.22)";
+    ctx.beginPath();
+    ctx.ellipse(0, 2, s * 1.35, s * 1.15, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.fillStyle = lantern.on ? "#ef8a1a" : "#6a3416";
+  ctx.beginPath();
+  ctx.ellipse(0, 2, s * 0.72, s * 0.62, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#3d6a32";
+  ctx.fillRect(-1.6, -s * 0.62, 3.2, s * 0.22);
+  ctx.fillStyle = lantern.on ? "#ffe7a0" : "#1a0d08";
+  if (lantern.face === 1) {
+    ctx.fillRect(-s * 0.34, -s * 0.14, s * 0.16, s * 0.16);
+    ctx.fillRect(s * 0.16, -s * 0.14, s * 0.16, s * 0.16);
+  } else {
+    const eye = (x) => {
+      ctx.beginPath();
+      ctx.moveTo(x, -s * 0.18);
+      ctx.lineTo(x - s * 0.1, -s * 0.02);
+      ctx.lineTo(x + s * 0.1, -s * 0.02);
+      ctx.closePath();
+      ctx.fill();
+    };
+    eye(-s * 0.22);
+    eye(s * 0.22);
+  }
+  ctx.beginPath();
+  const mouth = s * 0.2;
+  ctx.moveTo(-s * 0.28, mouth);
+  ctx.lineTo(-s * 0.14, mouth + s * (lantern.face === 2 ? 0.06 : 0.14));
+  ctx.lineTo(0, mouth + s * 0.03);
+  ctx.lineTo(s * 0.14, mouth + s * 0.14);
+  ctx.lineTo(s * 0.28, mouth);
+  ctx.closePath();
+  ctx.fill();
+}
+
+function drawBat(ctx, bat) {
+  const lift = 3 + Math.sin(bat.flap) * 8;
+  ctx.fillStyle = "#2a2a30";
+  ctx.beginPath();
+  ctx.moveTo(-2, 0);
+  ctx.lineTo(-15, -lift);
+  ctx.lineTo(-5, 1.6);
+  ctx.closePath();
+  ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(2, 0);
+  ctx.lineTo(15, -lift);
+  ctx.lineTo(5, 1.6);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = "#3c3c44";
+  ctx.beginPath();
+  ctx.ellipse(0, 0, 7.2, 3.3, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#f0d24a";
+  ctx.fillRect(2.2, -1.4, 1.5, 1.5);
+  ctx.fillRect(4.4, -1.4, 1.5, 1.5);
+}
+
 function draw(ctx, sim, trail) {
-  ctx.fillStyle = `rgba(7, 8, 12, ${1 - trail * 0.55})`;
-  ctx.fillRect(0, 0, sim.w, sim.h);
+  if (sim.mode === "halloween") {
+    ctx.fillStyle = NIGHT;
+    ctx.fillRect(0, 0, sim.w, sim.h);
+    drawNight(ctx, sim);
+  } else {
+    ctx.fillStyle = `rgba(7, 8, 12, ${1 - trail * 0.55})`;
+    ctx.fillRect(0, 0, sim.w, sim.h);
+  }
   for (const a of sim.agents) {
     ctx.save();
     ctx.translate(a.x, a.y);
+    if (a.kind === "lantern") {
+      drawLantern(ctx, a);
+      ctx.restore();
+      continue;
+    }
     ctx.rotate(Math.atan2(a.vy, a.vx));
+    if (a.kind === "bat") {
+      drawBat(ctx, a);
+      ctx.restore();
+      continue;
+    }
     if (a.kind === "koya") {
       ctx.fillStyle = `hsl(${a.hue}, 62%, 62%)`;
       ctx.beginPath(); ctx.ellipse(0, 0, 9, 4.2, 0, 0, Math.PI * 2); ctx.fill();
@@ -577,6 +788,7 @@ function ensureModes(sim, params) {
     '<label><input id="mode-cursors" data-testid="mode-cursors" data-mode="cursors" data-ui type="checkbox"> Cursors</label>' +
     '<label><input id="mode-koya" data-testid="mode-koya" data-mode="koya" data-ui type="checkbox"> Koya fish</label>' +
     '<label><input id="mode-diwali" data-testid="mode-diwali" data-mode="diwali" data-ui type="checkbox"> Diwali rockets</label>' +
+    '<label><input id="mode-halloween" data-testid="mode-halloween" data-mode="halloween" data-ui type="checkbox"> Halloween</label>' +
     '<div class="count-row"><label for="mode-count">Count</label><input id="mode-count" data-testid="mode-count" data-ui type="text" inputmode="numeric" autocomplete="off" enterkeyhint="done" aria-describedby="mode-count-msg"><button type="button" id="mode-count-apply" data-testid="mode-count-apply" data-ui>Apply</button></div>' +
     '<p class="count-msg" id="mode-count-msg" data-testid="mode-count-msg"></p>' +
     '<p class="hint" id="mode-hint"></p>';
@@ -629,7 +841,9 @@ function ensureModes(sim, params) {
       ? "Koya follow a moving pointer, then spread after 2s still. Count is 1–200 so a phone can keep the pond smooth."
       : sim.mode === "diwali"
         ? "Rockets launch on their own time, then burst at an edge or on pointer contact. Count is 1–200."
-        : "Cursors avoid the pointer. Count is 1–200.";
+        : sim.mode === "halloween"
+          ? "Jack-o'-lanterns flicker on their own. Bats wander the night. Count is 1–200."
+          : "Cursors avoid the pointer. Count is 1–200.";
   }
   box.querySelectorAll("[data-mode]").forEach((el) => {
     el.addEventListener("change", () => {
