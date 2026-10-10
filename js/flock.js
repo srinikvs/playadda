@@ -1,5 +1,10 @@
+const COUNT_MIN = 1;
+const COUNT_MAX = 200;
+const DEFAULT_COUNT = 100;
+const MODES = ["cursors", "koya", "diwali", "halloween"];
 const DEFAULTS = {
-  count: 180,
+  count: DEFAULT_COUNT,
+  counts: { cursors: DEFAULT_COUNT, koya: DEFAULT_COUNT, diwali: DEFAULT_COUNT, halloween: DEFAULT_COUNT },
   speed: 140,
   separation: 1.35,
   alignment: 1,
@@ -9,21 +14,83 @@ const DEFAULTS = {
   mode: "cursors",
 };
 const KEY = "murmur.params";
-const MODES = ["cursors", "koya", "diwali"];
-const CAP = { cursors: 400, koya: 20, diwali: 20 };
+const COUNTS_VERSION = 2;
 const STILL_S = 2;
+
+function clampCount(count) {
+  const n = Math.round(Number(count));
+  if (!Number.isFinite(n)) return DEFAULT_COUNT;
+  return Math.min(COUNT_MAX, Math.max(COUNT_MIN, n));
+}
+
+function parseCountInput(raw) {
+  const text = String(raw ?? "").trim();
+  if (/^[0-9]+$/.test(text)) {
+    const n = Number(text);
+    const count = Math.min(COUNT_MAX, Math.max(COUNT_MIN, n));
+    return { ok: true, count, clamped: count !== n };
+  }
+  if (/^-\d+$/.test(text)) return { ok: false, error: "Enter a number from 1 to 200" };
+  return { ok: false, error: "Enter a whole number." };
+}
+
+function freshCounts() {
+  return { cursors: DEFAULT_COUNT, koya: DEFAULT_COUNT, diwali: DEFAULT_COUNT, halloween: DEFAULT_COUNT };
+}
+
+function countsFromOptions(opts = {}) {
+  const counts = freshCounts();
+  if (opts.counts && typeof opts.counts === "object") {
+    for (const mode of MODES) {
+      if (opts.counts[mode] != null) counts[mode] = clampCount(opts.counts[mode]);
+    }
+    return counts;
+  }
+  if (opts.count != null) {
+    const n = clampCount(opts.count);
+    for (const mode of MODES) counts[mode] = n;
+  }
+  return counts;
+}
+
+function readStoredCounts(parsed) {
+  const counts = freshCounts();
+  if (!parsed || parsed.countsVersion !== COUNTS_VERSION || !parsed.counts || typeof parsed.counts !== "object") return counts;
+  for (const mode of MODES) {
+    if (parsed.counts[mode] != null) counts[mode] = clampCount(parsed.counts[mode]);
+  }
+  return counts;
+}
 
 function loadParams() {
   try {
     const raw = localStorage.getItem(KEY);
-    if (!raw) return { ...DEFAULTS };
-    return { ...DEFAULTS, ...JSON.parse(raw) };
+    const parsed = raw ? JSON.parse(raw) : {};
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return { ...DEFAULTS, counts: freshCounts(), countsVersion: COUNTS_VERSION };
+    }
+    const counts = readStoredCounts(parsed);
+    const mode = MODES.includes(parsed.mode) ? parsed.mode : "cursors";
+    return {
+      ...DEFAULTS,
+      ...parsed,
+      mode,
+      counts,
+      countsVersion: COUNTS_VERSION,
+      count: counts[mode],
+    };
   } catch {
-    return { ...DEFAULTS };
+    return { ...DEFAULTS, counts: freshCounts(), countsVersion: COUNTS_VERSION };
   }
 }
 function saveParams(p) {
-  try { localStorage.setItem(KEY, JSON.stringify(p)); } catch { /* ignore */ }
+  try {
+    const mode = MODES.includes(p.mode) ? p.mode : "cursors";
+    const counts = freshCounts();
+    for (const name of MODES) counts[name] = clampCount(p.counts?.[name]);
+    const stored = { ...p, mode, counts, countsVersion: COUNTS_VERSION, count: counts[mode] };
+    localStorage.setItem(KEY, JSON.stringify(stored));
+  } catch { /* ignore */ }
 }
 function rand(a, b) { return a + Math.random() * (b - a); }
 function wrapDelta(d, size) {
@@ -34,20 +101,18 @@ function wrapDelta(d, size) {
 function isUiTarget(target) {
   return target instanceof Element && Boolean(target.closest("button, input, a, label, select, textarea, [data-ui]"));
 }
-function clampCount(mode, count) {
-  return Math.max(mode === "cursors" ? 20 : 4, Math.min(CAP[mode], Math.round(count)));
-}
-
 function createSim(opts) {
   const sim = {
     w: opts.width, h: opts.height,
     mode: MODES.includes(opts.mode) ? opts.mode : "cursors",
     speed: opts.speed, separation: opts.separation, alignment: opts.alignment,
     cohesion: opts.cohesion, avoid: opts.avoid,
-    requestedCount: opts.count, agents: [], sparks: [], bursts: [],
+    counts: countsFromOptions(opts),
+    requestedCount: 0, agents: [], sparks: [], bursts: [],
     pointer: { x: 0, y: 0, on: false, lastMove: -STILL_S, panic: 0 },
     time: 0,
   };
+  sim.requestedCount = sim.counts[sim.mode];
   function spawnCursor() {
     const a = rand(0, Math.PI * 2);
     const s = sim.speed * rand(0.7, 1.1);
@@ -67,36 +132,189 @@ function createSim(opts) {
       nextTurn: rand(0.6, 2.2),
     };
   }
-  function spawnRocket() {
-    return { kind: "rocket", x: rand(40, Math.max(41, sim.w - 40)), y: sim.h - rand(28, 90), vx: rand(-26, 26), vy: -rand(100, 168), hue: rand(8, 46) };
+  const LAUNCH_DELAY_MAX = 3.2;
+  const BURST_S = 0.32;
+  function pondPoint() {
+    const margin = 36;
+    return {
+      x: rand(margin, Math.max(margin + 1, sim.w - margin)),
+      y: rand(margin, Math.max(margin + 1, sim.h - margin)),
+    };
   }
-  function burst(x, y, hue, reason) {
-    sim.bursts.push({ x, y, hue, reason, t: sim.time });
+  function makeSparks(x, y, hue, lifeScale = 1) {
+    const sparks = [];
     for (let i = 0; i < 16; i++) {
       const ang = (i / 16) * Math.PI * 2;
       const sp = rand(50, 170);
-      sim.sparks.push({ x, y, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp, hue: (hue + rand(-24, 48) + 360) % 360, life: rand(0.4, 0.85) });
+      sparks.push({
+        x, y,
+        vx: Math.cos(ang) * sp,
+        vy: Math.sin(ang) * sp,
+        hue: (hue + rand(-24, 48) + 360) % 360,
+        life: rand(0.45, 0.95) * lifeScale,
+      });
     }
+    return sparks;
+  }
+  function armRocket(rocket, delay) {
+    const point = pondPoint();
+    rocket.phase = "wait";
+    rocket.delay = delay;
+    rocket.x = point.x;
+    rocket.y = point.y;
+    rocket.vx = 0;
+    rocket.vy = 0;
+    rocket.hue = rand(8, 46);
+    rocket.sparks = [];
+    rocket.burstLeft = 0;
+  }
+  function launchRocket(rocket) {
+    rocket.phase = "rise";
+    rocket.delay = 0;
+    rocket.vx = rand(-36, 36);
+    rocket.vy = -rand(70, 150);
+    rocket.sparks = [];
+    rocket.burstLeft = 0;
+  }
+  function igniteRocket(rocket, reason) {
+    if (!rocket || rocket.phase === "burst" || rocket.phase === "fade") return;
+    rocket.x = Math.min(Math.max(rocket.x, 12), Math.max(12, sim.w - 12));
+    rocket.y = Math.min(Math.max(rocket.y, 12), Math.max(12, sim.h - 12));
+    rocket.phase = "burst";
+    rocket.burstLeft = BURST_S;
+    rocket.vx = 0;
+    rocket.vy = 0;
+    rocket.sparks = makeSparks(rocket.x, rocket.y, rocket.hue ?? 28);
+    sim.bursts.push({ x: rocket.x, y: rocket.y, hue: rocket.hue ?? 28, reason, t: sim.time });
+  }
+  function spawnRocket() {
+    const rocket = { kind: "rocket", hue: rand(8, 46), sparks: [] };
+    // Each rocket starts at its own point in the cycle, so the first frame
+    // is already a show: some waiting, some rising, some bursting, some fading.
+    const roll = Math.random();
+    if (roll < 0.34) {
+      armRocket(rocket, rand(0.05, LAUNCH_DELAY_MAX));
+    } else if (roll < 0.72) {
+      const point = pondPoint();
+      rocket.x = point.x;
+      rocket.y = point.y;
+      launchRocket(rocket);
+    } else if (roll < 0.86) {
+      const point = pondPoint();
+      rocket.x = point.x;
+      rocket.y = point.y;
+      rocket.phase = "burst";
+      rocket.burstLeft = rand(0.08, BURST_S);
+      rocket.vx = 0;
+      rocket.vy = 0;
+      rocket.delay = 0;
+      rocket.sparks = makeSparks(rocket.x, rocket.y, rocket.hue);
+    } else {
+      const point = pondPoint();
+      rocket.x = point.x;
+      rocket.y = point.y;
+      rocket.phase = "fade";
+      rocket.burstLeft = 0;
+      rocket.vx = 0;
+      rocket.vy = 0;
+      rocket.delay = 0;
+      rocket.sparks = makeSparks(rocket.x, rocket.y, rocket.hue, rand(0.35, 0.75));
+    }
+    return rocket;
+  }
+  function spawnLantern() {
+    const margin = 28;
+    return {
+      kind: "lantern",
+      x: rand(margin, Math.max(margin + 1, sim.w - margin)),
+      y: rand(margin, Math.max(margin + 1, sim.h - margin)),
+      vx: 0,
+      vy: 0,
+      on: Math.random() < 0.55,
+      next: sim.time + rand(0.12, 1.7),
+      onFor: rand(0.28, 1.7),
+      offFor: rand(0.08, 0.62),
+      face: Math.floor(rand(0, 3)),
+      size: rand(13, 20),
+    };
+  }
+  function spawnBat() {
+    const margin = 30;
+    const heading = rand(0, Math.PI * 2);
+    const speed = rand(46, 128);
+    return {
+      kind: "bat",
+      x: rand(margin, Math.max(margin + 1, sim.w - margin)),
+      y: rand(margin, Math.max(margin + 1, sim.h - margin)),
+      heading,
+      speed,
+      vx: Math.cos(heading) * speed,
+      vy: Math.sin(heading) * speed,
+      flap: rand(0, Math.PI * 2),
+      flapSpeed: rand(7, 16),
+      weave: rand(0.6, 2.4),
+      turn: rand(0.8, 2.2),
+      phase: rand(0, Math.PI * 2),
+    };
+  }
+  function placeHalloween(n) {
+    sim.agents = [];
+    const lanterns = Math.floor(n / 2);
+    for (let i = 0; i < lanterns; i++) sim.agents.push(spawnLantern());
+    for (let i = 0; i < n - lanterns; i++) sim.agents.push(spawnBat());
+  }
+  function rebalanceHalloween(n) {
+    const lanterns = [];
+    const bats = [];
+    for (const agent of sim.agents) {
+      if (agent.kind === "lantern") lanterns.push(agent);
+      else if (agent.kind === "bat") bats.push(agent);
+    }
+    const wantLanterns = Math.floor(n / 2);
+    const wantBats = n - wantLanterns;
+    while (lanterns.length > wantLanterns) lanterns.pop();
+    while (bats.length > wantBats) bats.pop();
+    while (lanterns.length < wantLanterns) lanterns.push(spawnLantern());
+    while (bats.length < wantBats) bats.push(spawnBat());
+    sim.agents = lanterns.concat(bats);
   }
   function fill() {
-    const n = clampCount(sim.mode, sim.requestedCount);
+    const n = clampCount(sim.requestedCount);
+    sim.requestedCount = n;
+    sim.counts[sim.mode] = n;
     sim.agents = [];
+    if (sim.mode === "halloween") {
+      placeHalloween(n);
+      return;
+    }
     for (let i = 0; i < n; i++) sim.agents.push(sim.mode === "koya" ? spawnFish() : sim.mode === "diwali" ? spawnRocket() : spawnCursor());
   }
   sim.still = () => sim.time - sim.pointer.lastMove >= STILL_S;
   sim.setMode = (mode) => {
     if (!MODES.includes(mode) || mode === sim.mode) return sim.mode;
     sim.mode = mode;
+    sim.requestedCount = sim.counts[mode];
     sim.sparks = [];
     fill();
     return sim.mode;
   };
-  sim.setCount = (n) => {
-    sim.requestedCount = n;
-    const target = clampCount(sim.mode, n);
+  sim.setCount = (n, rebuild = false) => {
+    const target = clampCount(n);
+    sim.requestedCount = target;
+    sim.counts[sim.mode] = target;
+    if (rebuild) {
+      sim.sparks = [];
+      fill();
+      return target;
+    }
+    if (sim.mode === "halloween") {
+      rebalanceHalloween(target);
+      return target;
+    }
     const spawn = sim.mode === "koya" ? spawnFish : sim.mode === "diwali" ? spawnRocket : spawnCursor;
     while (sim.agents.length < target) sim.agents.push(spawn());
     if (sim.agents.length > target) sim.agents.length = target;
+    return target;
   };
   sim.resize = (w, h) => { sim.w = w; sim.h = h; };
   sim.setPointer = (x, y, time = sim.time, moving = true) => {
@@ -106,11 +324,8 @@ function createSim(opts) {
     if (moved) sim.pointer.lastMove = sim.time;
   };
   sim.explode = (agent, reason) => {
-    const i = sim.agents.indexOf(agent);
-    if (i < 0) return;
-    burst(agent.x, agent.y, agent.hue ?? 28, reason);
-    sim.agents.splice(i, 1);
-    if (sim.mode === "diwali" && sim.agents.length < clampCount(sim.mode, sim.requestedCount)) sim.agents.push(spawnRocket());
+    if (!agent || agent.kind !== "rocket") return;
+    igniteRocket(agent, reason);
   };
   sim.blastAt = (x, y) => {
     for (const a of [...sim.agents]) if (a.kind === "rocket" && Math.hypot(a.x - x, a.y - y) < 42) sim.explode(a, "pointer");
@@ -124,6 +339,10 @@ function createSim(opts) {
     sim.pointer.panic = 0.7;
     if (sim.mode === "diwali") {
       for (const a of [...sim.agents]) sim.explode(a, "pointer");
+      return;
+    }
+    if (sim.mode === "halloween") {
+      for (const agent of sim.agents) if (agent.kind === "bat") agent.heading += rand(-1.2, 1.2);
       return;
     }
     const cx = sim.pointer.on ? sim.pointer.x : sim.w / 2;
@@ -336,12 +555,69 @@ function createSim(opts) {
       }
     }
   }
+  function tickRocketSparks(rocket, dt) {
+    if (!rocket.sparks) return;
+    rocket.sparks = rocket.sparks.filter((spark) => {
+      spark.life -= dt;
+      spark.x += spark.vx * dt;
+      spark.y += spark.vy * dt;
+      spark.vy += 36 * dt;
+      return spark.life > 0;
+    });
+  }
   function tickRockets(dt) {
-    for (const rocket of [...sim.agents]) {
-      rocket.vy -= 16 * dt;
-      rocket.x += rocket.vx * dt;
-      rocket.y += rocket.vy * dt;
-      if (rocket.x <= 10 || rocket.x >= sim.w - 10 || rocket.y <= 10 || rocket.y >= sim.h - 10) sim.explode(rocket, "edge");
+    for (const rocket of sim.agents) {
+      if (rocket.phase === "wait") {
+        rocket.delay -= dt;
+        if (rocket.delay <= 0) launchRocket(rocket);
+      } else if (rocket.phase === "rise") {
+        rocket.vy -= 16 * dt;
+        rocket.x += rocket.vx * dt;
+        rocket.y += rocket.vy * dt;
+        if (rocket.x <= 10 || rocket.x >= sim.w - 10 || rocket.y <= 10 || rocket.y >= sim.h - 10) igniteRocket(rocket, "edge");
+      } else {
+        if (rocket.phase === "burst") {
+          rocket.burstLeft -= dt;
+          if (rocket.burstLeft <= 0) rocket.phase = "fade";
+        }
+        tickRocketSparks(rocket, dt);
+        if (rocket.phase === "fade" && (!rocket.sparks || rocket.sparks.length === 0)) {
+          armRocket(rocket, rand(0.35, LAUNCH_DELAY_MAX));
+        }
+      }
+    }
+  }
+  function tickHalloween(dt) {
+    const inset = 20;
+    for (const agent of sim.agents) {
+      if (agent.kind === "lantern") {
+        if (sim.time >= agent.next) {
+          agent.on = !agent.on;
+          agent.next = sim.time + (agent.on ? agent.onFor : agent.offFor);
+        }
+        continue;
+      }
+      if (agent.kind !== "bat") continue;
+      agent.heading += Math.sin(sim.time * agent.weave + agent.phase) * agent.turn * dt;
+      agent.flap += agent.flapSpeed * dt;
+      agent.x += Math.cos(agent.heading) * agent.speed * dt;
+      agent.y += Math.sin(agent.heading) * agent.speed * dt;
+      if (agent.x < inset) {
+        agent.x = inset;
+        agent.heading = Math.PI - agent.heading;
+      } else if (agent.x > sim.w - inset) {
+        agent.x = sim.w - inset;
+        agent.heading = Math.PI - agent.heading;
+      }
+      if (agent.y < inset) {
+        agent.y = inset;
+        agent.heading = -agent.heading;
+      } else if (agent.y > sim.h - inset) {
+        agent.y = sim.h - inset;
+        agent.heading = -agent.heading;
+      }
+      agent.vx = Math.cos(agent.heading) * agent.speed;
+      agent.vy = Math.sin(agent.heading) * agent.speed;
     }
   }
   sim.tick = (dt, time) => {
@@ -349,43 +625,157 @@ function createSim(opts) {
     sim.time = time ?? sim.time + step;
     if (sim.mode === "koya") tickKoya(step);
     else if (sim.mode === "diwali") tickRockets(step);
+    else if (sim.mode === "halloween") tickHalloween(step);
     else tickCursors(step);
     sim.sparks = sim.sparks.filter((s) => { s.life -= step; s.x += s.vx * step; s.y += s.vy * step; s.vy += 36 * step; return s.life > 0; });
     if (sim.pointer.panic > 0) sim.pointer.panic = Math.max(0, sim.pointer.panic - step);
-    if (sim.agents.length > CAP[sim.mode]) sim.agents.length = CAP[sim.mode];
+    if (sim.agents.length > COUNT_MAX) sim.agents.length = COUNT_MAX;
   };
   fill();
   return sim;
 }
 
+const NIGHT = "#100818";
+
+function drawNight(ctx, sim) {
+  if (!sim.sky || sim.sky.w !== sim.w || sim.sky.h !== sim.h) {
+    const stars = [];
+    for (let i = 0; i < 42; i++) {
+      stars.push({
+        x: Math.random() * sim.w,
+        y: Math.random() * sim.h * 0.78,
+        r: Math.random() < 0.18 ? 1.3 : 0.7,
+      });
+    }
+    sim.sky = { w: sim.w, h: sim.h, stars };
+  }
+  ctx.fillStyle = "rgba(232, 228, 214, 0.8)";
+  for (const star of sim.sky.stars) ctx.fillRect(star.x, star.y, star.r, star.r);
+  const mx = sim.w * 0.8;
+  const my = Math.min(78, sim.h * 0.12);
+  ctx.fillStyle = "#f3e2b0";
+  ctx.beginPath();
+  ctx.arc(mx, my, 16, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = NIGHT;
+  ctx.beginPath();
+  ctx.arc(mx + 7, my - 2, 13, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawLantern(ctx, lantern) {
+  const s = lantern.size || 16;
+  if (lantern.on) {
+    ctx.fillStyle = "rgba(255, 150, 40, 0.22)";
+    ctx.beginPath();
+    ctx.ellipse(0, 2, s * 1.35, s * 1.15, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.fillStyle = lantern.on ? "#ef8a1a" : "#6a3416";
+  ctx.beginPath();
+  ctx.ellipse(0, 2, s * 0.72, s * 0.62, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#3d6a32";
+  ctx.fillRect(-1.6, -s * 0.62, 3.2, s * 0.22);
+  ctx.fillStyle = lantern.on ? "#ffe7a0" : "#1a0d08";
+  if (lantern.face === 1) {
+    ctx.fillRect(-s * 0.34, -s * 0.14, s * 0.16, s * 0.16);
+    ctx.fillRect(s * 0.16, -s * 0.14, s * 0.16, s * 0.16);
+  } else {
+    const eye = (x) => {
+      ctx.beginPath();
+      ctx.moveTo(x, -s * 0.18);
+      ctx.lineTo(x - s * 0.1, -s * 0.02);
+      ctx.lineTo(x + s * 0.1, -s * 0.02);
+      ctx.closePath();
+      ctx.fill();
+    };
+    eye(-s * 0.22);
+    eye(s * 0.22);
+  }
+  ctx.beginPath();
+  const mouth = s * 0.2;
+  ctx.moveTo(-s * 0.28, mouth);
+  ctx.lineTo(-s * 0.14, mouth + s * (lantern.face === 2 ? 0.06 : 0.14));
+  ctx.lineTo(0, mouth + s * 0.03);
+  ctx.lineTo(s * 0.14, mouth + s * 0.14);
+  ctx.lineTo(s * 0.28, mouth);
+  ctx.closePath();
+  ctx.fill();
+}
+
+function drawBat(ctx, bat) {
+  const lift = 3 + Math.sin(bat.flap) * 8;
+  ctx.fillStyle = "#2a2a30";
+  ctx.beginPath();
+  ctx.moveTo(-2, 0);
+  ctx.lineTo(-15, -lift);
+  ctx.lineTo(-5, 1.6);
+  ctx.closePath();
+  ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(2, 0);
+  ctx.lineTo(15, -lift);
+  ctx.lineTo(5, 1.6);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = "#3c3c44";
+  ctx.beginPath();
+  ctx.ellipse(0, 0, 7.2, 3.3, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#f0d24a";
+  ctx.fillRect(2.2, -1.4, 1.5, 1.5);
+  ctx.fillRect(4.4, -1.4, 1.5, 1.5);
+}
+
 function draw(ctx, sim, trail) {
-  ctx.fillStyle = `rgba(7, 8, 12, ${1 - trail * 0.55})`;
-  ctx.fillRect(0, 0, sim.w, sim.h);
+  if (sim.mode === "halloween") {
+    ctx.fillStyle = NIGHT;
+    ctx.fillRect(0, 0, sim.w, sim.h);
+    drawNight(ctx, sim);
+  } else {
+    ctx.fillStyle = `rgba(7, 8, 12, ${1 - trail * 0.55})`;
+    ctx.fillRect(0, 0, sim.w, sim.h);
+  }
   for (const a of sim.agents) {
     ctx.save();
     ctx.translate(a.x, a.y);
+    if (a.kind === "lantern") {
+      drawLantern(ctx, a);
+      ctx.restore();
+      continue;
+    }
     ctx.rotate(Math.atan2(a.vy, a.vx));
+    if (a.kind === "bat") {
+      drawBat(ctx, a);
+      ctx.restore();
+      continue;
+    }
     if (a.kind === "koya") {
       ctx.fillStyle = `hsl(${a.hue}, 62%, 62%)`;
       ctx.beginPath(); ctx.ellipse(0, 0, 9, 4.2, 0, 0, Math.PI * 2); ctx.fill();
       ctx.beginPath(); ctx.moveTo(-7, 0); ctx.lineTo(-13, 4); ctx.lineTo(-13, -4); ctx.fill();
     } else if (a.kind === "rocket") {
-      ctx.fillStyle = `hsl(${a.hue}, 85%, 58%)`;
-      ctx.fillRect(-6, -2, 12, 4);
-      ctx.fillStyle = "rgba(255, 196, 92, .85)";
-      ctx.beginPath(); ctx.moveTo(-6, 0); ctx.lineTo(-12, 2.4); ctx.lineTo(-12, -2.4); ctx.fill();
+      if (a.phase === "rise") {
+        ctx.fillStyle = `hsl(${a.hue}, 85%, 58%)`;
+        ctx.fillRect(-6, -2, 12, 4);
+        ctx.fillStyle = "rgba(255, 196, 92, .85)";
+        ctx.beginPath(); ctx.moveTo(-6, 0); ctx.lineTo(-12, 2.4); ctx.lineTo(-12, -2.4); ctx.fill();
+      }
     } else {
       ctx.fillStyle = "#9fd8d0";
       ctx.beginPath(); ctx.moveTo(7.5, 0); ctx.lineTo(-5.5, 3.4); ctx.lineTo(-3.2, 0); ctx.lineTo(-5.5, -3.4); ctx.fill();
     }
     ctx.restore();
   }
-  for (const s of sim.sparks) {
+  function paintSpark(s) {
     ctx.beginPath();
     ctx.fillStyle = `hsla(${s.hue}, 90%, 62%, ${Math.max(0, s.life)})`;
     ctx.arc(s.x, s.y, 2.4 + s.life * 3, 0, Math.PI * 2);
     ctx.fill();
   }
+  for (const s of sim.sparks) paintSpark(s);
+  for (const a of sim.agents) if (a.sparks) for (const s of a.sparks) paintSpark(s);
 }
 
 function ensureModes(sim, params) {
@@ -398,33 +788,77 @@ function ensureModes(sim, params) {
     '<label><input id="mode-cursors" data-testid="mode-cursors" data-mode="cursors" data-ui type="checkbox"> Cursors</label>' +
     '<label><input id="mode-koya" data-testid="mode-koya" data-mode="koya" data-ui type="checkbox"> Koya fish</label>' +
     '<label><input id="mode-diwali" data-testid="mode-diwali" data-mode="diwali" data-ui type="checkbox"> Diwali rockets</label>' +
+    '<label><input id="mode-halloween" data-testid="mode-halloween" data-mode="halloween" data-ui type="checkbox"> Halloween</label>' +
+    '<div class="count-row"><label for="mode-count">Count</label><input id="mode-count" data-testid="mode-count" data-ui type="text" inputmode="numeric" autocomplete="off" enterkeyhint="done" aria-describedby="mode-count-msg"><button type="button" id="mode-count-apply" data-testid="mode-count-apply" data-ui>Apply</button></div>' +
+    '<p class="count-msg" id="mode-count-msg" data-testid="mode-count-msg"></p>' +
     '<p class="hint" id="mode-hint"></p>';
   drawer.insertBefore(box, drawer.querySelector(".panel-head")?.nextSibling || drawer.firstChild);
   if (!document.getElementById("murmur-mode-style")) {
     const style = document.createElement("style");
     style.id = "murmur-mode-style";
-    style.textContent = ".modes{border:1px solid var(--line);border-radius:12px;padding:.45rem .7rem .55rem;margin:0 0 .8rem}.modes legend{padding:0 .3rem;color:var(--accent);font-size:.72rem;letter-spacing:.08em;text-transform:uppercase}.modes label{display:flex;align-items:center;gap:.45rem;min-height:36px;font-size:.8rem}.modes input{accent-color:var(--accent)}";
+    style.textContent = ".modes{border:1px solid var(--line);border-radius:12px;padding:.45rem .7rem .55rem;margin:0 0 .8rem}.modes legend{padding:0 .3rem;color:var(--accent);font-size:.72rem;letter-spacing:.08em;text-transform:uppercase}.modes label{display:flex;align-items:center;gap:.45rem;min-height:36px;font-size:.8rem}.modes input{accent-color:var(--accent)}.modes .count-row{display:flex;align-items:center;flex-wrap:wrap;gap:.4rem;min-height:44px;font-size:.8rem}.modes .count-row input{width:4.75rem;min-width:0;min-height:36px;border-radius:8px;border:1px solid var(--line);background:#07080c;color:var(--text);padding:0 .45rem;font:inherit}.modes .count-row button{min-height:36px;border-radius:999px;border:1px solid var(--line);background:#1a1d24;color:var(--text);padding:0 .75rem;font:inherit}.modes .count-msg{min-height:1.05em;margin:.15rem 0 .2rem;font-size:.72rem;color:var(--muted)}.modes .count-msg[data-state=invalid]{color:#ffb4b4}";
     document.head.appendChild(style);
+  }
+  const countInput = document.getElementById("mode-count");
+  const countMsg = document.getElementById("mode-count-msg");
+  function syncCountField() {
+    if (!countInput) return;
+    countInput.value = String(sim.counts[sim.mode]);
+    const slider = document.getElementById("pop");
+    const sliderVal = document.getElementById("pop-val");
+    if (slider) slider.value = String(sim.counts[sim.mode]);
+    if (sliderVal) sliderVal.textContent = String(sim.counts[sim.mode]);
+    params.count = sim.counts[sim.mode];
+    params.counts = { ...sim.counts };
+  }
+  function applyCount() {
+    const parsed = parseCountInput(countInput.value);
+    if (!parsed.ok) {
+      if (countMsg) {
+        countMsg.dataset.state = "invalid";
+        countMsg.textContent = parsed.error;
+      }
+      return;
+    }
+    sim.setCount(parsed.count, true);
+    params.counts[sim.mode] = sim.counts[sim.mode];
+    params.count = sim.counts[sim.mode];
+    saveParams(params);
+    syncCountField();
+    if (countMsg) {
+      countMsg.dataset.state = parsed.clamped ? "clamped" : "";
+      countMsg.textContent = parsed.clamped ? `Using ${parsed.count}. Count stays between ${COUNT_MIN} and ${COUNT_MAX}.` : "";
+    }
   }
   function sync() {
     for (const mode of MODES) {
       const el = document.getElementById(`mode-${mode}`);
       if (el) el.checked = sim.mode === mode;
     }
+    syncCountField();
     const hint = document.getElementById("mode-hint");
     if (hint) hint.textContent = sim.mode === "koya"
-      ? "Koya cozy into a moving pointer, then disperse after 2s still. Max 20."
+      ? "Koya follow a moving pointer, then spread after 2s still. Count is 1–200 so a phone can keep the pond smooth."
       : sim.mode === "diwali"
-        ? "Rockets burst at an edge or on pointer contact. Max 20."
-        : "Cursors avoid the pointer.";
+        ? "Rockets launch on their own time, then burst at an edge or on pointer contact. Count is 1–200."
+        : sim.mode === "halloween"
+          ? "Jack-o'-lanterns flicker on their own. Bats wander the night. Count is 1–200."
+          : "Cursors avoid the pointer. Count is 1–200.";
   }
   box.querySelectorAll("[data-mode]").forEach((el) => {
     el.addEventListener("change", () => {
       if (!el.checked) { el.checked = true; return; }
       params.mode = sim.setMode(el.getAttribute("data-mode"));
+      params.counts = { ...sim.counts };
+      params.count = sim.counts[sim.mode];
       saveParams(params);
+      if (countMsg) { countMsg.dataset.state = ""; countMsg.textContent = ""; }
       sync();
     });
+  });
+  document.getElementById("mode-count-apply")?.addEventListener("click", applyCount);
+  countInput?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); applyCount(); }
   });
   sync();
 }
@@ -437,21 +871,32 @@ function bindSlider(sim, params, id, key) {
   out.textContent = key === "count" || key === "speed" ? String(Math.round(params[key])) : Number(params[key]).toFixed(2);
   el.addEventListener("input", () => {
     const v = Number(el.value);
-    params[key] = v;
-    sim[key] = v;
-    out.textContent = key === "count" || key === "speed" ? String(Math.round(v)) : v.toFixed(2);
-    if (key === "count") sim.setCount(v);
+    const applied = key === "count" ? sim.setCount(v) : v;
+    if (key === "count") {
+      params.count = applied;
+      params.counts[sim.mode] = applied;
+      const field = document.getElementById("mode-count");
+      if (field) field.value = String(applied);
+    } else {
+      params[key] = v;
+      sim[key] = v;
+    }
+    out.textContent = key === "count" || key === "speed" ? String(Math.round(key === "count" ? applied : v)) : v.toFixed(2);
     saveParams(params);
   });
 }
 
 window.createSim = createSim;
+window.parseMurmurCount = parseCountInput;
+window.clampMurmurCount = clampCount;
+window.loadMurmurParams = loadParams;
+window.saveMurmurParams = saveParams;
+window.MURMUR_COUNT = { min: COUNT_MIN, max: COUNT_MAX, defaultCount: DEFAULT_COUNT };
 window.startMurmur = function startMurmur(canvas) {
   const params = loadParams();
-  if (window.innerWidth < 600) params.count = Math.min(params.count, 110);
   const sim = createSim({
     width: window.innerWidth, height: window.innerHeight,
-    mode: params.mode, count: params.count, speed: params.speed,
+    mode: params.mode, count: params.count, counts: params.counts, speed: params.speed,
     separation: params.separation, alignment: params.alignment,
     cohesion: params.cohesion, avoid: params.avoid,
   });
