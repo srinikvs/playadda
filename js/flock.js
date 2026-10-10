@@ -132,24 +132,95 @@ function createSim(opts) {
       nextTurn: rand(0.6, 2.2),
     };
   }
-  function spawnRocket() {
+  const LAUNCH_DELAY_MAX = 3.2;
+  const BURST_S = 0.32;
+  function pondPoint() {
     const margin = 36;
     return {
-      kind: "rocket",
       x: rand(margin, Math.max(margin + 1, sim.w - margin)),
       y: rand(margin, Math.max(margin + 1, sim.h - margin)),
-      vx: rand(-36, 36),
-      vy: -rand(70, 150),
-      hue: rand(8, 46),
     };
   }
-  function burst(x, y, hue, reason) {
-    sim.bursts.push({ x, y, hue, reason, t: sim.time });
+  function makeSparks(x, y, hue, lifeScale = 1) {
+    const sparks = [];
     for (let i = 0; i < 16; i++) {
       const ang = (i / 16) * Math.PI * 2;
       const sp = rand(50, 170);
-      sim.sparks.push({ x, y, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp, hue: (hue + rand(-24, 48) + 360) % 360, life: rand(0.4, 0.85) });
+      sparks.push({
+        x, y,
+        vx: Math.cos(ang) * sp,
+        vy: Math.sin(ang) * sp,
+        hue: (hue + rand(-24, 48) + 360) % 360,
+        life: rand(0.45, 0.95) * lifeScale,
+      });
     }
+    return sparks;
+  }
+  function armRocket(rocket, delay) {
+    const point = pondPoint();
+    rocket.phase = "wait";
+    rocket.delay = delay;
+    rocket.x = point.x;
+    rocket.y = point.y;
+    rocket.vx = 0;
+    rocket.vy = 0;
+    rocket.hue = rand(8, 46);
+    rocket.sparks = [];
+    rocket.burstLeft = 0;
+  }
+  function launchRocket(rocket) {
+    rocket.phase = "rise";
+    rocket.delay = 0;
+    rocket.vx = rand(-36, 36);
+    rocket.vy = -rand(70, 150);
+    rocket.sparks = [];
+    rocket.burstLeft = 0;
+  }
+  function igniteRocket(rocket, reason) {
+    if (!rocket || rocket.phase === "burst" || rocket.phase === "fade") return;
+    rocket.x = Math.min(Math.max(rocket.x, 12), Math.max(12, sim.w - 12));
+    rocket.y = Math.min(Math.max(rocket.y, 12), Math.max(12, sim.h - 12));
+    rocket.phase = "burst";
+    rocket.burstLeft = BURST_S;
+    rocket.vx = 0;
+    rocket.vy = 0;
+    rocket.sparks = makeSparks(rocket.x, rocket.y, rocket.hue ?? 28);
+    sim.bursts.push({ x: rocket.x, y: rocket.y, hue: rocket.hue ?? 28, reason, t: sim.time });
+  }
+  function spawnRocket() {
+    const rocket = { kind: "rocket", hue: rand(8, 46), sparks: [] };
+    // Each rocket starts at its own point in the cycle, so the first frame
+    // is already a show: some waiting, some rising, some bursting, some fading.
+    const roll = Math.random();
+    if (roll < 0.34) {
+      armRocket(rocket, rand(0.05, LAUNCH_DELAY_MAX));
+    } else if (roll < 0.72) {
+      const point = pondPoint();
+      rocket.x = point.x;
+      rocket.y = point.y;
+      launchRocket(rocket);
+    } else if (roll < 0.86) {
+      const point = pondPoint();
+      rocket.x = point.x;
+      rocket.y = point.y;
+      rocket.phase = "burst";
+      rocket.burstLeft = rand(0.08, BURST_S);
+      rocket.vx = 0;
+      rocket.vy = 0;
+      rocket.delay = 0;
+      rocket.sparks = makeSparks(rocket.x, rocket.y, rocket.hue);
+    } else {
+      const point = pondPoint();
+      rocket.x = point.x;
+      rocket.y = point.y;
+      rocket.phase = "fade";
+      rocket.burstLeft = 0;
+      rocket.vx = 0;
+      rocket.vy = 0;
+      rocket.delay = 0;
+      rocket.sparks = makeSparks(rocket.x, rocket.y, rocket.hue, rand(0.35, 0.75));
+    }
+    return rocket;
   }
   function fill() {
     const n = clampCount(sim.requestedCount);
@@ -189,11 +260,8 @@ function createSim(opts) {
     if (moved) sim.pointer.lastMove = sim.time;
   };
   sim.explode = (agent, reason) => {
-    const i = sim.agents.indexOf(agent);
-    if (i < 0) return;
-    burst(agent.x, agent.y, agent.hue ?? 28, reason);
-    sim.agents.splice(i, 1);
-    if (sim.mode === "diwali" && sim.agents.length < clampCount(sim.requestedCount)) sim.agents.push(spawnRocket());
+    if (!agent || agent.kind !== "rocket") return;
+    igniteRocket(agent, reason);
   };
   sim.blastAt = (x, y) => {
     for (const a of [...sim.agents]) if (a.kind === "rocket" && Math.hypot(a.x - x, a.y - y) < 42) sim.explode(a, "pointer");
@@ -419,12 +487,36 @@ function createSim(opts) {
       }
     }
   }
+  function tickRocketSparks(rocket, dt) {
+    if (!rocket.sparks) return;
+    rocket.sparks = rocket.sparks.filter((spark) => {
+      spark.life -= dt;
+      spark.x += spark.vx * dt;
+      spark.y += spark.vy * dt;
+      spark.vy += 36 * dt;
+      return spark.life > 0;
+    });
+  }
   function tickRockets(dt) {
-    for (const rocket of [...sim.agents]) {
-      rocket.vy -= 16 * dt;
-      rocket.x += rocket.vx * dt;
-      rocket.y += rocket.vy * dt;
-      if (rocket.x <= 10 || rocket.x >= sim.w - 10 || rocket.y <= 10 || rocket.y >= sim.h - 10) sim.explode(rocket, "edge");
+    for (const rocket of sim.agents) {
+      if (rocket.phase === "wait") {
+        rocket.delay -= dt;
+        if (rocket.delay <= 0) launchRocket(rocket);
+      } else if (rocket.phase === "rise") {
+        rocket.vy -= 16 * dt;
+        rocket.x += rocket.vx * dt;
+        rocket.y += rocket.vy * dt;
+        if (rocket.x <= 10 || rocket.x >= sim.w - 10 || rocket.y <= 10 || rocket.y >= sim.h - 10) igniteRocket(rocket, "edge");
+      } else {
+        if (rocket.phase === "burst") {
+          rocket.burstLeft -= dt;
+          if (rocket.burstLeft <= 0) rocket.phase = "fade";
+        }
+        tickRocketSparks(rocket, dt);
+        if (rocket.phase === "fade" && (!rocket.sparks || rocket.sparks.length === 0)) {
+          armRocket(rocket, rand(0.35, LAUNCH_DELAY_MAX));
+        }
+      }
     }
   }
   sim.tick = (dt, time) => {
@@ -453,22 +545,26 @@ function draw(ctx, sim, trail) {
       ctx.beginPath(); ctx.ellipse(0, 0, 9, 4.2, 0, 0, Math.PI * 2); ctx.fill();
       ctx.beginPath(); ctx.moveTo(-7, 0); ctx.lineTo(-13, 4); ctx.lineTo(-13, -4); ctx.fill();
     } else if (a.kind === "rocket") {
-      ctx.fillStyle = `hsl(${a.hue}, 85%, 58%)`;
-      ctx.fillRect(-6, -2, 12, 4);
-      ctx.fillStyle = "rgba(255, 196, 92, .85)";
-      ctx.beginPath(); ctx.moveTo(-6, 0); ctx.lineTo(-12, 2.4); ctx.lineTo(-12, -2.4); ctx.fill();
+      if (a.phase === "rise") {
+        ctx.fillStyle = `hsl(${a.hue}, 85%, 58%)`;
+        ctx.fillRect(-6, -2, 12, 4);
+        ctx.fillStyle = "rgba(255, 196, 92, .85)";
+        ctx.beginPath(); ctx.moveTo(-6, 0); ctx.lineTo(-12, 2.4); ctx.lineTo(-12, -2.4); ctx.fill();
+      }
     } else {
       ctx.fillStyle = "#9fd8d0";
       ctx.beginPath(); ctx.moveTo(7.5, 0); ctx.lineTo(-5.5, 3.4); ctx.lineTo(-3.2, 0); ctx.lineTo(-5.5, -3.4); ctx.fill();
     }
     ctx.restore();
   }
-  for (const s of sim.sparks) {
+  function paintSpark(s) {
     ctx.beginPath();
     ctx.fillStyle = `hsla(${s.hue}, 90%, 62%, ${Math.max(0, s.life)})`;
     ctx.arc(s.x, s.y, 2.4 + s.life * 3, 0, Math.PI * 2);
     ctx.fill();
   }
+  for (const s of sim.sparks) paintSpark(s);
+  for (const a of sim.agents) if (a.sparks) for (const s of a.sparks) paintSpark(s);
 }
 
 function ensureModes(sim, params) {
@@ -532,7 +628,7 @@ function ensureModes(sim, params) {
     if (hint) hint.textContent = sim.mode === "koya"
       ? "Koya follow a moving pointer, then spread after 2s still. Count is 1–200 so a phone can keep the pond smooth."
       : sim.mode === "diwali"
-        ? "Rockets burst at an edge or on pointer contact. Count is 1–200."
+        ? "Rockets launch on their own time, then burst at an edge or on pointer contact. Count is 1–200."
         : "Cursors avoid the pointer. Count is 1–200.";
   }
   box.querySelectorAll("[data-mode]").forEach((el) => {

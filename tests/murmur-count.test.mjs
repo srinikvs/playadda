@@ -170,19 +170,55 @@ test("diwali keeps every rocket alive and spread through the pond", () => {
   assert.equal(sim.agents.filter((agent) => agent.kind === "rocket").length, 100);
 });
 
+test("diwali rockets are in mixed phases at a sampled time", () => {
+  const { createSim } = loadFlock(memoryStorage());
+  const sim = createSim({ width: 412, height: 915, mode: "diwali", count: 180, speed: 140 });
+  for (let i = 0; i < 30 * 3; i++) sim.tick(1 / 30);
+  assert.equal(sim.agents.length, 180);
+  const sampled = phaseCounts(sim);
+  assertMixed(sampled, "sample");
+  for (const phase of ["wait", "rise", "burst", "fade"]) {
+    assert.ok(sampled[phase] > 0, `${phase} missing in ${JSON.stringify(sampled)}`);
+  }
+  assertRocketField(sim, "mixed");
+
+  sim.scatter();
+  for (let i = 0; i < 30 * 2; i++) sim.tick(1 / 30);
+  assert.equal(sim.agents.length, 180);
+  const relaunched = phaseCounts(sim);
+  assertMixed(relaunched, "after burst");
+  assert.ok(relaunched.wait > 0 && relaunched.rise > 0, JSON.stringify(relaunched));
+});
+
+function phaseCounts(sim) {
+  const counts = { wait: 0, rise: 0, burst: 0, fade: 0 };
+  for (const rocket of sim.agents) {
+    if (rocket.kind !== "rocket") continue;
+    counts[rocket.phase] = (counts[rocket.phase] || 0) + 1;
+  }
+  return counts;
+}
+
+function assertMixed(counts, label) {
+  const active = Object.entries(counts).filter(([, n]) => n > 0).map(([name]) => name);
+  assert.ok(active.length >= 2, `${label} phases ${active.join(",") || "none"} ${JSON.stringify(counts)}`);
+}
+
 function assertRocketField(sim, label) {
   const rockets = sim.agents.filter((agent) => agent.kind === "rocket");
   assert.equal(rockets.length, sim.agents.length, label);
+  const placed = rockets.filter((rocket) => rocket.phase === "wait" || rocket.phase === "rise");
+  assert.ok(placed.length >= rockets.length * 0.35, `${label} placed ${placed.length}`);
   let ySum = 0;
   let bottom = 0;
-  for (const rocket of rockets) {
+  for (const rocket of placed) {
     assert.ok(rocket.x > 10 && rocket.x < sim.w - 10, `${label} x ${rocket.x}`);
     assert.ok(rocket.y > 10 && rocket.y < sim.h - 10, `${label} y ${rocket.y}`);
     ySum += rocket.y;
     if (rocket.y > sim.h * 0.8) bottom++;
   }
-  const mean = ySum / rockets.length;
-  const variance = rockets.reduce((sum, rocket) => sum + (rocket.y - mean) ** 2, 0) / rockets.length;
+  const mean = ySum / placed.length;
+  const variance = placed.reduce((sum, rocket) => sum + (rocket.y - mean) ** 2, 0) / placed.length;
   assert.ok(Math.sqrt(variance) >= sim.h * 0.12, `${label} y spread ${Math.sqrt(variance).toFixed(1)}`);
-  assert.ok(bottom / rockets.length < 0.45, `${label} ${bottom} rockets on the bottom`);
+  assert.ok(bottom / placed.length < 0.45, `${label} ${bottom} rockets on the bottom`);
 }
