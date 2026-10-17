@@ -1,17 +1,25 @@
-// CI pipeline. Unit tests from BRANCH, then Playwright against playaddatest only.
+// CI pipeline. Unit tests from BRANCH, then Playwright. This file never rsyncs.
 // Jenkins job script path: jenkins/ci.Jenkinsfile
 // Suggested job name: ci
 //
+// TARGET=playaddatest (default) uses the playaddatest URLs below.
+// TARGET=playadda runs the same tests read-only against
+// https://playadda.duckdns.org/<game>/. It never deploys and never injects
+// the playaddatest session. DEPLOY=true with TARGET=playadda fails at start.
+//
 // Daily parameterized cron from 5:00 AM America/New_York, one repo per build,
-// DEPLOY=false. A timer run forces DEPLOY=false again. This file never rsyncs.
-// The old tessera-ci-prod Friday 2:00 AM ET read-only prod smoke is not here.
+// pins TARGET=playaddatest;DEPLOY=false. A timer run of those lines forces
+// TARGET=playaddatest and DEPLOY=false again.
+// Friday 2:00 AM America/New_York uses the same repo list, one line per game,
+// and pins TARGET=playadda;DEPLOY=false. That timer keeps DEPLOY=false and is
+// the only timer allowed to keep TARGET=playadda.
 //
 // aisle-sarukulu is in the dropdown so the parameter matches game and test.
-// It is not in the daily cron: there is no aisle-sarukulu-ci job, and this
-// pipeline will not invent a Sarukulu or production BASE_URL. Selecting it
-// fails with a TODO. aisle-ci (GAME=Aisle) still uses
-// https://playaddatest.duckdns.org/aisle/
+// It is not in either cron: there is no aisle-sarukulu-ci job, and this
+// pipeline will not invent a Sarukulu BASE_URL. Selecting it fails with a
+// TODO. aisle-ci (GAME=Aisle) uses the aisle path on the chosen TARGET host.
 
+import com.cloudbees.groovy.cps.NonCPS
 import groovy.transform.Field
 
 // =============================================================================
@@ -65,6 +73,9 @@ import groovy.transform.Field
     'playadda'       : 'https://playaddatest.duckdns.org/',
 ]
 
+// @NonCPS: CRON_SPEC calls this during field init. A CPS method cannot run
+// while Jenkins is still constructing the Script instance.
+@NonCPS
 String scheduledCron(List<String> repos, int startHour, int startMinute, String dayOfWeek, String paramSuffix) {
     if (STAGGER_MINUTES <= 0) {
         throw new IllegalArgumentException('STAGGER_MINUTES must be a positive number of minutes.')
@@ -91,6 +102,7 @@ String scheduledCron(List<String> repos, int startHour, int startMinute, String 
 // Daily cron order is GAME_REPOS without aisle-sarukulu. Kept as a literal so
 // the cron string is built during field init, not from a later loop.
 // The check below fails the load if this drifts from GAME_REPOS.
+// Friday 2:00 uses this same list, read-only against prod.
 @Field List<String> CI_CRON_REPOS = [
     'tessera',
     'Murmur',
@@ -104,7 +116,23 @@ String scheduledCron(List<String> repos, int startHour, int startMinute, String 
     'playadda',
 ]
 
-@Field String CRON_SPEC = scheduledCron(CI_CRON_REPOS, 5, 0, '*', 'BRANCH=main;DEPLOY=false')
+// One TZ line. Daily lines pin playaddatest. Friday lines pin playadda.
+// Both pin DEPLOY=false. Offsets come only from STAGGER_MINUTES.
+@NonCPS
+String ciCronSpec() {
+    String daily = scheduledCron(CI_CRON_REPOS, 5, 0, '*', 'BRANCH=main;TARGET=playaddatest;DEPLOY=false')
+    String friday = scheduledCron(CI_CRON_REPOS, 2, 0, '5', 'BRANCH=main;TARGET=playadda;DEPLOY=false')
+    def fridayLines = []
+    def fridayAll = friday.readLines()
+    for (int i = 0; i < fridayAll.size(); i++) {
+        if (!fridayAll[i].startsWith('TZ=')) {
+            fridayLines << fridayAll[i]
+        }
+    }
+    return daily + '\n' + fridayLines.join('\n')
+}
+
+@Field String CRON_SPEC = ciCronSpec()
 def expectedCronRepos = []
 for (int cronIdx = 0; cronIdx < GAME_REPOS.size(); cronIdx++) {
     if (GAME_REPOS[cronIdx] != 'aisle-sarukulu') {
@@ -114,11 +142,39 @@ for (int cronIdx = 0; cronIdx < GAME_REPOS.size(); cronIdx++) {
 if (expectedCronRepos != CI_CRON_REPOS) {
     throw new IllegalStateException('CI_CRON_REPOS must be GAME_REPOS without aisle-sarukulu, in the same order.')
 }
-if (!CRON_SPEC.readLines().any { it.startsWith('0 5 * * * %GAME=tessera;BRANCH=main;DEPLOY=false') }) {
-    throw new IllegalStateException('ci cron must keep tessera at 05:00 America/New_York daily')
+def cronLines = CRON_SPEC.readLines()
+if (!cronLines.any { it.startsWith('0 5 * * * %GAME=tessera;BRANCH=main;TARGET=playaddatest;DEPLOY=false') }) {
+    throw new IllegalStateException('ci cron must keep tessera at 05:00 America/New_York daily on playaddatest')
+}
+if (!cronLines.any { it.startsWith('0 2 * * 5 %GAME=tessera;BRANCH=main;TARGET=playadda;DEPLOY=false') }) {
+    throw new IllegalStateException('ci cron must keep tessera at Friday 02:00 America/New_York read-only on playadda')
 }
 if (CRON_SPEC.contains('%GAME=aisle-sarukulu;')) {
     throw new IllegalStateException('ci cron must not schedule aisle-sarukulu')
+}
+int dailyCount = 0
+int fridayCount = 0
+for (int lineIdx = 0; lineIdx < cronLines.size(); lineIdx++) {
+    String cronLine = cronLines[lineIdx]
+    if (cronLine.startsWith('TZ=') || cronLine.trim().isEmpty()) {
+        continue
+    }
+    if (cronLine.contains('* * 5 %')) {
+        fridayCount++
+        if (!cronLine.contains('TARGET=playadda;DEPLOY=false')) {
+            throw new IllegalStateException("Friday ci cron line must pin TARGET=playadda;DEPLOY=false: ${cronLine}")
+        }
+    } else if (cronLine.contains('* * * %')) {
+        dailyCount++
+        if (!cronLine.contains('TARGET=playaddatest;DEPLOY=false')) {
+            throw new IllegalStateException("daily ci cron line must pin TARGET=playaddatest;DEPLOY=false: ${cronLine}")
+        }
+    } else {
+        throw new IllegalStateException("unexpected ci cron line '${cronLine}'")
+    }
+}
+if (dailyCount != CI_CRON_REPOS.size() || fridayCount != CI_CRON_REPOS.size()) {
+    throw new IllegalStateException('daily and Friday ci crons must each schedule CI_CRON_REPOS once')
 }
 
 properties([
@@ -127,10 +183,15 @@ properties([
         choice(
             name: 'GAME',
             choices: (GAME_REPOS + ['all']).join('\n'),
-            description: 'What to test, in this order. all (last) runs every entry above, waiting STAGGER_MINUTES between them. Daily cron skips aisle-sarukulu (no ci job, no invented BASE_URL).'
+            description: 'What to test, in this order. all (last) runs every entry above, waiting STAGGER_MINUTES between them. Daily and Friday crons skip aisle-sarukulu (no ci job, no invented BASE_URL).'
+        ),
+        choice(
+            name: 'TARGET',
+            choices: 'playaddatest\nplayadda',
+            description: 'playaddatest (default) tests https://playaddatest.duckdns.org/. playadda runs the same tests read-only against https://playadda.duckdns.org/ and never deploys or uses the playaddatest session. Daily 5 AM cron pins playaddatest. Friday 2 AM cron pins playadda.'
         ),
         string(name: 'BRANCH', defaultValue: 'main', description: 'Branch for unit tests and Playwright.'),
-        booleanParam(name: 'DEPLOY', defaultValue: false, description: 'Ignored. ci never deploys. A timer trigger forces this to false.'),
+        booleanParam(name: 'DEPLOY', defaultValue: false, description: 'Ignored on playaddatest. ci never deploys or rsyncs. DEPLOY=true with TARGET=playadda fails the build. A timer trigger forces this to false.'),
     ]),
     pipelineTriggers([parameterizedCron(CRON_SPEC)]),
 ])
@@ -166,7 +227,26 @@ void assertBranch(String branch) {
     }
 }
 
+// playaddatest returns the map entry unchanged. playadda swaps the host only,
+// so pacman, murmur, aisle, and the portal root keep today's paths.
+String baseUrlFor(String game) {
+    String base = BASE_URLS[game]
+    if (env.CI_TARGET == 'playadda') {
+        if (!base) {
+            return base
+        }
+        return base.replace('https://playaddatest.duckdns.org', 'https://playadda.duckdns.org')
+    }
+    return base
+}
+
 void refuseBase(String label, String baseUrl) {
+    if (env.CI_TARGET == 'playadda') {
+        if (!baseUrl || !baseUrl.startsWith('https://playadda.duckdns.org/') || baseUrl.contains('playaddatest')) {
+            error("${label}: refusing BASE_URL '${baseUrl}'. TARGET=playadda only tests https://playadda.duckdns.org/.")
+        }
+        return
+    }
     if (!baseUrl || !baseUrl.contains('playaddatest.duckdns.org')) {
         error("${label}: refusing BASE_URL '${baseUrl}'. ci only tests playaddatest.")
     }
@@ -190,8 +270,8 @@ void archiveCi(boolean excludeTrace) {
 }
 
 void runTessera(String branch) {
-    String base = BASE_URLS['tessera']
-    if (base?.contains('playadda.duckdns.org') && !base.contains('playaddatest')) {
+    String base = baseUrlFor('tessera')
+    if (env.CI_TARGET != 'playadda' && base?.contains('playadda.duckdns.org') && !base.contains('playaddatest')) {
         error('tessera-ci forbids prod BASE_URL — use tessera-ci-prod for Friday 2am smoke')
     }
     refuseBase('tessera-ci', base)
@@ -208,7 +288,7 @@ npm test
 set -euo pipefail
 export PATH="/usr/local/lib/nodejs/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 export CI=true
-export BASE_URL="https://playaddatest.duckdns.org/tessera/"
+export BASE_URL="''' + base + '''"
 echo "Playwright against $BASE_URL (read-only; no local preview)"
 npx playwright install chromium
 npm run test:e2e
@@ -219,9 +299,9 @@ npm run test:e2e
 }
 
 void runGeneric(String game, String label, String branch, boolean starSpec) {
-    String base = BASE_URLS[game]
+    String base = baseUrlFor(game)
     refuseBase(label, base)
-    if (base && base.contains('playadda.duckdns.org') && !base.contains('playaddatest')) {
+    if (env.CI_TARGET != 'playadda' && base && base.contains('playadda.duckdns.org') && !base.contains('playaddatest')) {
         error("${label}: prod BASE_URL forbidden on daily *-ci")
     }
     env.E2E_BASE_URL = base
@@ -265,15 +345,15 @@ fi
 }
 
 void runPlayadda(String branch) {
-    String base = BASE_URLS['playadda']
-    if (base && base.contains('playadda.duckdns.org') && !base.contains('playaddatest')) {
+    String base = baseUrlFor('playadda')
+    if (env.CI_TARGET != 'playadda' && base && base.contains('playadda.duckdns.org') && !base.contains('playaddatest')) {
         error('playadda-ci: prod BASE_URL forbidden on daily *-ci')
     }
     refuseBase('playadda-ci', base)
     env.E2E_BASE_URL = base
-    // Same allow-list as playadda-ci: inject the qa storage state only for the
-    // playaddatest origin. Slashy form so the dots are literal.
-    env.E2E_INJECT_SESSION = (base ==~ /^https:\/\/playaddatest\.duckdns\.org(\/.*)?$/) ? 'true' : 'false'
+    // Inject the qa storage state only for the playaddatest origin, and never
+    // when TARGET=playadda. Slashy form so the dots are literal.
+    env.E2E_INJECT_SESSION = (env.CI_TARGET != 'playadda' && (base ==~ /^https:\/\/playaddatest\.duckdns\.org(\/.*)?$/)) ? 'true' : 'false'
     checkoutRepo(REPO_URLS['playadda'], branch, "*/${branch}")
     def ciScript = '''set -euo pipefail
 export PATH="/usr/local/lib/nodejs/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
@@ -373,7 +453,7 @@ void runSelected(String gameParam, String branch) {
             sleep time: STAGGER_MINUTES, unit: 'MINUTES'
         }
         stage(game) {
-            echo "=== ${game} branch=${branch} BASE_URL=${BASE_URLS[game] ?: 'n/a'} DEPLOY=false ==="
+            echo "=== ${game} branch=${branch} BASE_URL=${baseUrlFor(game) ?: 'n/a'} DEPLOY=false ==="
             try {
                 runGame(game, branch)
             } catch (InterruptedException e) {
@@ -404,18 +484,48 @@ timestamps {
                 error("Unknown GAME '${gameParam}'.")
             }
             assertBranch(branch)
+            String target = params?.TARGET?.toString()?.trim()
+            if (!target) {
+                target = 'playaddatest'
+            }
+            if (target != 'playaddatest' && target != 'playadda') {
+                error("Unknown TARGET '${target}'.")
+            }
             boolean timer = triggeredByTimer()
+            boolean requestedDeploy = asBool(params?.DEPLOY)
+            // A timer keeps TARGET=playadda only when this GAME is one of the
+            // Friday lines (those pin TARGET=playadda;DEPLOY=false). Every
+            // other timer, including the daily 5 AM lines, is forced back to
+            // playaddatest. DEPLOY is always forced false on a timer.
+            boolean fridayProdLine = false
+            if (target == 'playadda') {
+                def specLines = CRON_SPEC.readLines()
+                for (int lineIdx = 0; lineIdx < specLines.size(); lineIdx++) {
+                    String cronLine = specLines[lineIdx]
+                    if (cronLine.contains('* * 5 %') && cronLine.contains("%GAME=${gameParam};") && cronLine.contains('TARGET=playadda;DEPLOY=false')) {
+                        fridayProdLine = true
+                    }
+                }
+            }
             if (timer) {
-                echo 'Timer trigger: forcing DEPLOY=false. ci cron never deploys.'
-            } else if (asBool(params?.DEPLOY)) {
+                if (fridayProdLine) {
+                    echo 'Timer trigger: Friday read-only prod line. Forcing DEPLOY=false and keeping TARGET=playadda.'
+                } else {
+                    target = 'playaddatest'
+                    echo 'Timer trigger: forcing TARGET=playaddatest and DEPLOY=false.'
+                }
+            } else if (requestedDeploy && target == 'playadda') {
+                error('DEPLOY=true is refused when TARGET=playadda. ci never deploys or rsyncs.')
+            } else if (requestedDeploy) {
                 echo 'DEPLOY=true has no effect on ci. This pipeline only runs unit tests and Playwright against playaddatest.'
             }
+            env.CI_TARGET = target
             env.DO_DEPLOY = 'false'
             env.CI = 'true'
-            currentBuild.displayName = "#${env.BUILD_NUMBER} ${gameParam} ${branch}"
-            currentBuild.description = "GAME=${gameParam} branch=${branch} deploy=false"
-            echo "Effective GAME=${gameParam} BRANCH=${branch} DEPLOY=false STAGGER_MINUTES=${STAGGER_MINUTES} timer=${timer}"
-            echo "Daily parameterizedCron (generated from STAGGER_MINUTES, aisle-sarukulu omitted):\n${CRON_SPEC}"
+            currentBuild.displayName = "#${env.BUILD_NUMBER} ${gameParam} ${target} ${branch}"
+            currentBuild.description = "GAME=${gameParam} branch=${branch} target=${target} deploy=false"
+            echo "Effective GAME=${gameParam} BRANCH=${branch} TARGET=${target} DEPLOY=false STAGGER_MINUTES=${STAGGER_MINUTES} timer=${timer}"
+            echo "parameterizedCron (daily playaddatest 05:00, Friday playadda 02:00, aisle-sarukulu omitted):\n${CRON_SPEC}"
             runSelected(gameParam, branch)
         }
     }

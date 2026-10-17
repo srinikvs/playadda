@@ -11,6 +11,7 @@
 // (scripted `node {}`) are unchanged. users.json is not a destination;
 // an allow-list below refuses any other path.
 
+import com.cloudbees.groovy.cps.NonCPS
 import groovy.transform.Field
 
 // =============================================================================
@@ -75,6 +76,9 @@ import groovy.transform.Field
     '/var/www/html/js/',
 ]
 
+// @NonCPS: CRON_SPEC calls this during field init. A CPS method cannot run
+// while Jenkins is still constructing the Script instance.
+@NonCPS
 String scheduledCron(List<String> repos, int startHour, int startMinute, String dayOfWeek, String paramSuffix) {
     if (STAGGER_MINUTES <= 0) {
         throw new IllegalArgumentException('STAGGER_MINUTES must be a positive number of minutes.')
