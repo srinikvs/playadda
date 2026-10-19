@@ -14,10 +14,11 @@
 // and pins TARGET=playadda;DEPLOY=false. That timer keeps DEPLOY=false and is
 // the only timer allowed to keep TARGET=playadda.
 //
-// aisle-sarukulu is in the dropdown so the parameter matches game and test.
-// It is not in either cron: there is no aisle-sarukulu-ci job, and this
-// pipeline will not invent a Sarukulu BASE_URL. Selecting it fails with a
-// TODO. aisle-ci (GAME=Aisle) uses the aisle path on the chosen TARGET host.
+// Aisle and aisle-sarukulu stay in the dropdown so the parameter matches
+// game and test, and so Aisle can still be run by hand. Neither cron
+// schedules them. aisle-sarukulu has no ci job; selecting it fails with a
+// TODO. Aisle's stagger slot stays empty so every other game keeps its
+// clock time. A manual Aisle run still uses aisle-ci on the chosen TARGET host.
 
 import com.cloudbees.groovy.cps.NonCPS
 import groovy.transform.Field
@@ -28,7 +29,9 @@ import groovy.transform.Field
 //   * the parameterizedCron minute/hour offsets generated below
 //   * the sleep between repos when a manual run sets GAME=all
 // Do not hand-edit cron minutes or hours.
-// aisle-sarukulu is omitted from the cron list only (see CI_CRON_REPOS).
+// Aisle and aisle-sarukulu are omitted from the cron lines (see CI_CRON_REPOS).
+// Aisle remains an empty stagger slot so later clock times stay put.
+// aisle-sarukulu never had a slot.
 // =============================================================================
 @Field int STAGGER_MINUTES = 30
 
@@ -83,14 +86,19 @@ String scheduledCron(List<String> repos, int startHour, int startMinute, String 
     def lines = ['TZ=America/New_York']
     for (int i = 0; i < repos.size(); i++) {
         int total = (startHour * 60) + startMinute + (i * STAGGER_MINUTES)
+        String slotName = repos[i] ? repos[i] : 'held slot'
         if (total >= (24 * 60)) {
             throw new IllegalArgumentException(
-                "STAGGER_MINUTES=${STAGGER_MINUTES} pushes ${repos[i]} past midnight. " +
+                "STAGGER_MINUTES=${STAGGER_MINUTES} pushes ${slotName} past midnight. " +
                 'Lower STAGGER_MINUTES so every repo stays on the same calendar day.'
             )
         }
         int hour = total.intdiv(60)
         int minute = total % 60
+        // Empty entries hold a stagger slot and emit no line (Aisle).
+        if (!repos[i]) {
+            continue
+        }
         lines << String.format(
             '%d %d * * %s %%GAME=%s;%s',
             minute, hour, dayOfWeek, repos[i], paramSuffix
@@ -99,9 +107,11 @@ String scheduledCron(List<String> repos, int startHour, int startMinute, String 
     return lines.join('\n')
 }
 
-// Daily cron order is GAME_REPOS without aisle-sarukulu. Kept as a literal so
-// the cron string is built during field init, not from a later loop.
-// The check below fails the load if this drifts from GAME_REPOS.
+// Daily cron order is GAME_REPOS without aisle-sarukulu. Aisle is an empty
+// string: no cron line, and the slot still counts so later games keep the
+// same clock time. Kept as a literal so the cron string is built during
+// field init, not from a later loop. The check below fails the load if
+// this drifts from GAME_REPOS.
 // Friday 2:00 uses this same list, read-only against prod.
 @Field List<String> CI_CRON_REPOS = [
     'tessera',
@@ -112,7 +122,7 @@ String scheduledCron(List<String> repos, int startHour, int startMinute, String 
     'tango',
     'chassu-rider',
     'pac-man',
-    'Aisle',
+    '', // Aisle slot, not scheduled. Keeps playadda at daily 09:30 and Friday 06:30.
     'playadda',
 ]
 
@@ -135,12 +145,19 @@ String ciCronSpec() {
 @Field String CRON_SPEC = ciCronSpec()
 def expectedCronRepos = []
 for (int cronIdx = 0; cronIdx < GAME_REPOS.size(); cronIdx++) {
-    if (GAME_REPOS[cronIdx] != 'aisle-sarukulu') {
-        expectedCronRepos << GAME_REPOS[cronIdx]
+    String cronGame = GAME_REPOS[cronIdx]
+    if (cronGame == 'aisle-sarukulu') {
+        continue
     }
+    // Same omission as aisle-sarukulu, but the slot stays so later times do not move.
+    if (cronGame == 'Aisle') {
+        expectedCronRepos << ''
+        continue
+    }
+    expectedCronRepos << cronGame
 }
 if (expectedCronRepos != CI_CRON_REPOS) {
-    throw new IllegalStateException('CI_CRON_REPOS must be GAME_REPOS without aisle-sarukulu, in the same order.')
+    throw new IllegalStateException('CI_CRON_REPOS must be GAME_REPOS without aisle-sarukulu, with Aisle held as an empty stagger slot, in the same order.')
 }
 def cronLines = CRON_SPEC.readLines()
 if (!cronLines.any { it.startsWith('0 5 * * * %GAME=tessera;BRANCH=main;TARGET=playaddatest;DEPLOY=false') }) {
@@ -149,8 +166,20 @@ if (!cronLines.any { it.startsWith('0 5 * * * %GAME=tessera;BRANCH=main;TARGET=p
 if (!cronLines.any { it.startsWith('0 2 * * 5 %GAME=tessera;BRANCH=main;TARGET=playadda;DEPLOY=false') }) {
     throw new IllegalStateException('ci cron must keep tessera at Friday 02:00 America/New_York read-only on playadda')
 }
+if (!cronLines.any { it.startsWith('30 9 * * * %GAME=playadda;BRANCH=main;TARGET=playaddatest;DEPLOY=false') }) {
+    throw new IllegalStateException('ci cron must keep playadda at 09:30 America/New_York daily on playaddatest')
+}
+if (!cronLines.any { it.startsWith('30 6 * * 5 %GAME=playadda;BRANCH=main;TARGET=playadda;DEPLOY=false') }) {
+    throw new IllegalStateException('ci cron must keep playadda at Friday 06:30 America/New_York read-only on playadda')
+}
 if (CRON_SPEC.contains('%GAME=aisle-sarukulu;')) {
     throw new IllegalStateException('ci cron must not schedule aisle-sarukulu')
+}
+if (CRON_SPEC.contains('%GAME=Aisle;')) {
+    throw new IllegalStateException('ci cron must not schedule Aisle')
+}
+if (CRON_SPEC.contains('%GAME=;')) {
+    throw new IllegalStateException('ci cron must not emit the held Aisle slot')
 }
 int dailyCount = 0
 int fridayCount = 0
@@ -173,8 +202,14 @@ for (int lineIdx = 0; lineIdx < cronLines.size(); lineIdx++) {
         throw new IllegalStateException("unexpected ci cron line '${cronLine}'")
     }
 }
-if (dailyCount != CI_CRON_REPOS.size() || fridayCount != CI_CRON_REPOS.size()) {
-    throw new IllegalStateException('daily and Friday ci crons must each schedule CI_CRON_REPOS once')
+int scheduledRepoCount = 0
+for (int repoIdx = 0; repoIdx < CI_CRON_REPOS.size(); repoIdx++) {
+    if (CI_CRON_REPOS[repoIdx]) {
+        scheduledRepoCount++
+    }
+}
+if (dailyCount != scheduledRepoCount || fridayCount != scheduledRepoCount) {
+    throw new IllegalStateException('daily and Friday ci crons must each schedule every named CI_CRON_REPOS entry once')
 }
 
 properties([
@@ -183,7 +218,7 @@ properties([
         choice(
             name: 'GAME',
             choices: (GAME_REPOS + ['all']).join('\n'),
-            description: 'What to test, in this order. all (last) runs every entry above, waiting STAGGER_MINUTES between them. Daily and Friday crons skip aisle-sarukulu (no ci job, no invented BASE_URL).'
+            description: 'What to test, in this order. all (last) runs every entry above, waiting STAGGER_MINUTES between them. Daily and Friday crons skip Aisle and aisle-sarukulu. Aisle stays in this list for a manual run. aisle-sarukulu has no ci job and no invented BASE_URL.'
         ),
         choice(
             name: 'TARGET',
@@ -525,7 +560,7 @@ timestamps {
             currentBuild.displayName = "#${env.BUILD_NUMBER} ${gameParam} ${target} ${branch}"
             currentBuild.description = "GAME=${gameParam} branch=${branch} target=${target} deploy=false"
             echo "Effective GAME=${gameParam} BRANCH=${branch} TARGET=${target} DEPLOY=false STAGGER_MINUTES=${STAGGER_MINUTES} timer=${timer}"
-            echo "parameterizedCron (daily playaddatest 05:00, Friday playadda 02:00, aisle-sarukulu omitted):\n${CRON_SPEC}"
+            echo "parameterizedCron (daily playaddatest 05:00, Friday playadda 02:00, Aisle and aisle-sarukulu omitted):\n${CRON_SPEC}"
             runSelected(gameParam, branch)
         }
     }
