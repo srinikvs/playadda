@@ -173,7 +173,16 @@ void checkoutProd(String url, String branch, String credentialsId = null) {
     } else {
         git branch: branch, url: url
     }
-    sh "git fetch origin && git checkout origin/${branch} && git log -1 --oneline"
+    // The git step writes a plain https remote. The fetch below has no credential
+    // of its own, so a private repo fails asking for a username. gitUsernamePassword
+    // supplies the same Jenkins credential for that fetch only. Do not echo it.
+    if (credentialsId) {
+        withCredentials([gitUsernamePassword(credentialsId: credentialsId, gitToolName: 'Default')]) {
+            sh "git fetch origin && git checkout origin/${branch} && git log -1 --oneline"
+        }
+    } else {
+        sh "git fetch origin && git checkout origin/${branch} && git log -1 --oneline"
+    }
 }
 
 // Shell copied from the tessera / tango / chassu-rider / pacman jobs.
