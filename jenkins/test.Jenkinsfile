@@ -35,6 +35,7 @@ import groovy.transform.Field
     'Aisle',
     'aisle-sarukulu',
     'playadda',
+    'maata',
 ]
 
 @Field Map<String, String> REPO_URLS = [
@@ -49,6 +50,12 @@ import groovy.transform.Field
     'Aisle'           : 'https://github.com/srinikvs/Aisle.git',
     'aisle-sarukulu'  : 'https://github.com/srinikvs/Aisle.git',
     'playadda'        : 'https://github.com/srinikvs/playadda.git',
+    'maata'           : 'https://github.com/srinikvs/maata.git',
+]
+
+// Private repos need the Jenkins GitHub credential to clone. Public repos stay anonymous.
+@Field Map<String, String> REPO_CREDS = [
+    'maata' : 'github-srinikvs-pat',
 ]
 
 @Field List<String> TEST_DESTS = [
@@ -62,6 +69,7 @@ import groovy.transform.Field
     '/var/www/playaddatest/pacman/',
     '/var/www/playaddatest/html/',
     '/var/www/playaddatest/html/js/',
+    '/var/www/playaddatest/maata/',
 ]
 
 String scheduledCron(List<String> repos, int startHour, int startMinute, String dayOfWeek, String paramSuffix) {
@@ -124,9 +132,13 @@ void refuseDest(String dest) {
     }
 }
 
-void checkoutRepo(String url, String branch) {
+void checkoutRepo(String url, String branch, String credentialsId = null) {
     deleteDir()
-    checkout([$class: 'GitSCM', branches: [[name: '**']], userRemoteConfigs: [[url: url]]])
+    def remote = [url: url]
+    if (credentialsId) {
+        remote.credentialsId = credentialsId
+    }
+    checkout([$class: 'GitSCM', branches: [[name: '**']], userRemoteConfigs: [remote]])
     sh "git fetch origin --prune && git checkout -B ${branch} origin/${branch} && git log -1 --oneline"
 }
 
@@ -188,6 +200,27 @@ test -d dist
 '''
     if (deploy) {
         rsyncDelete('/var/www/playaddatest/zip/')
+    } else {
+        echo 'DEPLOY=false, skipping rsync'
+    }
+}
+
+// Static page only (vite --base /maata/ via npm run build). The transcribe service is the
+// separate maata-host job; the model is maata-model-publish; whisper-cli is maata-whisper.
+void runMaata(String branch, boolean deploy) {
+    checkoutRepo(REPO_URLS['maata'], branch, REPO_CREDS['maata'])
+    sh '''
+set -euo pipefail
+export PATH="/usr/local/lib/nodejs/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+export PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
+if [ -f package-lock.json ]; then npm ci; else echo no-lockfile; npm install; fi
+npm run build
+test -d dist
+test -f dist/index.html
+if find dist -name '*.bin' | grep -q .; then echo 'Refusing: a model file is in dist/'; exit 1; fi
+'''
+    if (deploy) {
+        rsyncDelete('/var/www/playaddatest/maata/')
     } else {
         echo 'DEPLOY=false, skipping rsync'
     }
@@ -263,6 +296,9 @@ void runGame(String game, String branch, boolean deploy) {
             break
         case 'playadda':
             runPlayadda(branch, deploy)
+            break
+        case 'maata':
+            runMaata(branch, deploy)
             break
         default:
             error("Unknown GAME '${game}'.")

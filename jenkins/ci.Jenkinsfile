@@ -47,6 +47,7 @@ import groovy.transform.Field
     'Aisle',
     'aisle-sarukulu',
     'playadda',
+    'maata',
 ]
 
 @Field Map<String, String> REPO_URLS = [
@@ -61,6 +62,12 @@ import groovy.transform.Field
     'Aisle'           : 'https://github.com/srinikvs/Aisle.git',
     'aisle-sarukulu'  : 'https://github.com/srinikvs/Aisle.git',
     'playadda'        : 'https://github.com/srinikvs/playadda.git',
+    'maata'           : 'https://github.com/srinikvs/maata.git',
+]
+
+// Private repos need the Jenkins GitHub credential to clone. Public repos stay anonymous.
+@Field Map<String, String> REPO_CREDS = [
+    'maata' : 'github-srinikvs-pat',
 ]
 
 @Field Map<String, String> BASE_URLS = [
@@ -74,6 +81,7 @@ import groovy.transform.Field
     'pac-man'        : 'https://playaddatest.duckdns.org/pacman/',
     'Aisle'          : 'https://playaddatest.duckdns.org/aisle/',
     'playadda'       : 'https://playaddatest.duckdns.org/',
+    'maata'          : 'https://playaddatest.duckdns.org/maata/',
 ]
 
 // @NonCPS: CRON_SPEC calls this during field init. A CPS method cannot run
@@ -124,6 +132,7 @@ String scheduledCron(List<String> repos, int startHour, int startMinute, String 
     'pac-man',
     '', // Aisle slot, not scheduled. Keeps playadda at daily 09:30 and Friday 06:30.
     'playadda',
+    'maata', // daily 10:00 playaddatest, Friday 07:00 read-only playadda
 ]
 
 // One TZ line. Daily lines pin playaddatest. Friday lines pin playadda.
@@ -171,6 +180,12 @@ if (!cronLines.any { it.startsWith('30 9 * * * %GAME=playadda;BRANCH=main;TARGET
 }
 if (!cronLines.any { it.startsWith('30 6 * * 5 %GAME=playadda;BRANCH=main;TARGET=playadda;DEPLOY=false') }) {
     throw new IllegalStateException('ci cron must keep playadda at Friday 06:30 America/New_York read-only on playadda')
+}
+if (!cronLines.any { it.startsWith('0 10 * * * %GAME=maata;BRANCH=main;TARGET=playaddatest;DEPLOY=false') }) {
+    throw new IllegalStateException('ci cron must keep maata at 10:00 America/New_York daily on playaddatest')
+}
+if (!cronLines.any { it.startsWith('0 7 * * 5 %GAME=maata;BRANCH=main;TARGET=playadda;DEPLOY=false') }) {
+    throw new IllegalStateException('ci cron must keep maata at Friday 07:00 America/New_York read-only on playadda')
 }
 if (CRON_SPEC.contains('%GAME=aisle-sarukulu;')) {
     throw new IllegalStateException('ci cron must not schedule aisle-sarukulu')
@@ -290,9 +305,13 @@ void refuseBase(String label, String baseUrl) {
     }
 }
 
-void checkoutRepo(String url, String branch, String branchSpec) {
+void checkoutRepo(String url, String branch, String branchSpec, String credentialsId = null) {
     deleteDir()
-    checkout([$class: 'GitSCM', branches: [[name: branchSpec]], userRemoteConfigs: [[url: url]]])
+    def remote = [url: url]
+    if (credentialsId) {
+        remote.credentialsId = credentialsId
+    }
+    checkout([$class: 'GitSCM', branches: [[name: branchSpec]], userRemoteConfigs: [remote]])
     sh "git fetch origin --prune && git checkout -B ${branch} origin/${branch} && git log -1 --oneline"
 }
 
@@ -341,7 +360,7 @@ void runGeneric(String game, String label, String branch, boolean starSpec) {
     }
     env.E2E_BASE_URL = base
     String spec = starSpec ? "*/${branch}" : '**'
-    checkoutRepo(REPO_URLS[game], branch, spec)
+    checkoutRepo(REPO_URLS[game], branch, spec, REPO_CREDS[game])
     try {
         sh '''
 set -euo pipefail
@@ -472,6 +491,9 @@ void runGame(String game, String branch) {
             break
         case 'playadda':
             runPlayadda(branch)
+            break
+        case 'maata':
+            runGeneric('maata', 'maata-ci', branch, true)
             break
         default:
             error("Unknown GAME '${game}'.")

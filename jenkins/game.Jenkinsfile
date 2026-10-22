@@ -42,6 +42,7 @@ import groovy.transform.Field
     'Aisle',
     'aisle-sarukulu',
     'playadda',
+    'maata',
 ]
 
 @Field Map<String, String> REPO_URLS = [
@@ -56,6 +57,12 @@ import groovy.transform.Field
     'Aisle'           : 'https://github.com/srinikvs/Aisle.git',
     'aisle-sarukulu'  : 'https://github.com/srinikvs/Aisle.git',
     'playadda'        : 'https://github.com/srinikvs/playadda.git',
+    'maata'           : 'https://github.com/srinikvs/maata.git',
+]
+
+// Private repos need the Jenkins GitHub credential to clone. Public repos stay anonymous.
+@Field Map<String, String> REPO_CREDS = [
+    'maata' : 'github-srinikvs-pat',
 ]
 
 // Exact rsync destinations from the production jobs. aisle-sarukulu is the
@@ -74,6 +81,7 @@ import groovy.transform.Field
     '/var/www/aisle-root/',
     '/var/www/html/',
     '/var/www/html/js/',
+    '/var/www/maata/',
 ]
 
 // @NonCPS: CRON_SPEC calls this during field init. A CPS method cannot run
@@ -105,13 +113,16 @@ String scheduledCron(List<String> repos, int startHour, int startMinute, String 
 // Trigger block. Offsets come only from STAGGER_MINUTES via scheduledCron().
 // Start is Friday 1:00 AM America/New_York. With 30, the lines are
 // 1:00, 1:30, 2:00, ... in GAME_REPOS order. Each line is one repo,
-// BRANCH=main, DEPLOY=true.
+// BRANCH=main, DEPLOY=true. maata is last: Friday 06:30.
 @Field String CRON_SPEC = scheduledCron(GAME_REPOS, 1, 0, '5', 'BRANCH=main;DEPLOY=true')
 if (!CRON_SPEC.readLines().any { it.startsWith('0 1 * * 5 %GAME=tessera;BRANCH=main;DEPLOY=true') }) {
     throw new IllegalStateException('game cron must keep tessera at Friday 01:00 America/New_York')
 }
 if (!CRON_SPEC.readLines().any { it.contains('%GAME=aisle-sarukulu;BRANCH=main;DEPLOY=true') }) {
     throw new IllegalStateException('game cron must include aisle-sarukulu with BRANCH=main and DEPLOY=true')
+}
+if (!CRON_SPEC.readLines().any { it.startsWith('30 6 * * 5 %GAME=maata;BRANCH=main;DEPLOY=true') }) {
+    throw new IllegalStateException('game cron must keep maata at Friday 06:30 America/New_York')
 }
 
 properties([
@@ -155,9 +166,13 @@ void refuseDest(String dest) {
     }
 }
 
-void checkoutProd(String url, String branch) {
+void checkoutProd(String url, String branch, String credentialsId = null) {
     deleteDir()
-    git branch: branch, url: url
+    if (credentialsId) {
+        git branch: branch, url: url, credentialsId: credentialsId
+    } else {
+        git branch: branch, url: url
+    }
     sh "git fetch origin && git checkout origin/${branch} && git log -1 --oneline"
 }
 
@@ -314,6 +329,23 @@ echo "DEPLOY_OK $(cat .build-sha)"
     }
 }
 
+// Static page only. Service: maata-host. Model: maata-model-publish. whisper-cli: maata-whisper.
+void runMaata(String branch, boolean deploy) {
+    checkoutProd(REPO_URLS['maata'], branch, REPO_CREDS['maata'])
+    sh '''
+set -euo pipefail
+export PATH="/usr/local/lib/nodejs/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+export PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
+if [ -f package-lock.json ]; then npm ci; else echo no-lockfile; npm install; fi
+npm run build
+test -d dist
+test -f dist/index.html
+if find dist -name '*.bin' | grep -q .; then echo 'Refusing: a model file is in dist/'; exit 1; fi
+'''
+    archiveArtifacts artifacts: 'dist/**', allowEmptyArchive: false
+    if (deploy) { rsyncDelete('dist/', '/var/www/maata/') } else { skipDeploy() }
+}
+
 void runGame(String game, String branch, boolean deploy) {
     switch (game) {
         case 'tessera':
@@ -348,6 +380,9 @@ void runGame(String game, String branch, boolean deploy) {
             break
         case 'playadda':
             runPlayadda(branch, deploy)
+            break
+        case 'maata':
+            runMaata(branch, deploy)
             break
         default:
             error("Unknown GAME '${game}'.")

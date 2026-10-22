@@ -34,4 +34,5 @@ export const SEED_CARDS = [
   "card-tango",
   "card-chassu-rider",
   "card-zip",
+  "card-maata",
 ] as const;
