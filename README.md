@@ -2,7 +2,7 @@
 
 Games portal for [playadda.duckdns.org](https://playadda.duckdns.org/).
 
-**v1.3.1** — Koya stay spread across the pond. A moving pointer still gathers them; after it leaves, or rests for about 2 seconds, they fill the water again. Cursors and Diwali are unchanged.
+**v1.3.2** — Each Murmur mode starts at 100 objects. The mode menu takes a whole-number count from 1 to 200, rebuilds the scene, and remembers it. Koya still spread at that count.
 
 ## Layout
 
@@ -118,7 +118,7 @@ parent.postMessage({ type: "playadda:score", game: "tessera", score: 120 }, loca
 
 ## QA
 
-1. Open `/` signed out. Login card sits over Murmur. Game grid is hidden. Hamburger still opens Murmur controls. Version reads v1.3.1.
+1. Open `/` signed out. Login card sits over Murmur. Game grid is hidden. Hamburger still opens Murmur controls. Version reads v1.3.2.
 2. Wrong name or code: error, stay on login.
 3. Name from the external JSON plus a current authenticator code: grid unlocks, account bar shows your best and overall high score.
 4. `window.playadda.submitScore("portal", 10)` raises that user's best. A higher score from another account updates overall.
