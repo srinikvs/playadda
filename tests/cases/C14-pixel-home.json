@@ -22,7 +22,8 @@
         "card-tessera",
         "card-classic-snake",
         "card-tango",
-        "card-chassu-rider"
+        "card-chassu-rider",
+        "card-maata"
       ]
     },
     {
@@ -33,7 +34,8 @@
         "card-tessera",
         "card-classic-snake",
         "card-tango",
-        "card-chassu-rider"
+        "card-chassu-rider",
+        "card-maata"
       ],
       "minWidth": 180,
       "minHeight": 160

@@ -21,7 +21,8 @@
         "card-tessera",
         "card-classic-snake",
         "card-tango",
-        "card-chassu-rider"
+        "card-chassu-rider",
+        "card-maata"
       ],
       "match": "play"
     }

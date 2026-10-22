@@ -1,7 +1,7 @@
 {
   "id": "B8",
   "layer": "e2e",
-  "title": "Mini Sudoku, Zip, Tessera, Classic Snake, Tango, and Chassu Rider cards show a filled Play CTA",
+  "title": "Mini Sudoku, Zip, Tessera, Classic Snake, Tango, Chassu Rider, and Maata cards show a filled Play CTA",
   "gate": "block",
   "steps": [{ "op": "openFresh" }],
   "expect": [
@@ -11,6 +11,7 @@
     { "assert": "visible", "testId": "card-classic-snake" },
     { "assert": "visible", "testId": "card-tango" },
     { "assert": "visible", "testId": "card-chassu-rider" },
+    { "assert": "visible", "testId": "card-maata" },
     {
       "assert": "ctaFilled",
       "testId": [
@@ -19,7 +20,8 @@
         "card-tessera",
         "card-classic-snake",
         "card-tango",
-        "card-chassu-rider"
+        "card-chassu-rider",
+        "card-maata"
       ],
       "match": "play"
     }
