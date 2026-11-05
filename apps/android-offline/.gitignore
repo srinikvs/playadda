@@ -1,0 +1,21 @@
+local.properties
+.gradle/
+build/
+*.apk
+*.aab
+*.ap_
+*.dex
+*.jks
+*.keystore
+keystore.properties
+signing.properties
+google-services.json
+.idea/
+*.iml
+captures/
+.cxx/
+.DS_Store
+# The bundled web build is generated at build time, not committed.
+app/src/main/assets/
+.env
+.env.*
