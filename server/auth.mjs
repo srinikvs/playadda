@@ -3,6 +3,8 @@ import http from "node:http";
 import { extname, normalize, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadConfig } from "./config.mjs";
+import { applyCors } from "./cors.mjs";
+import { publicLeaderboard } from "./leaderboard.mjs";
 import { enrollPageHtml } from "./enroll-page.mjs";
 import { createEnrollment } from "./enroll.mjs";
 import { isAdminSession, readSession, signSession } from "./session.mjs";
@@ -106,7 +108,11 @@ export function createAuthServer(config) {
 
   return http.createServer(async (req, res) => {
     const url = new URL(req.url || "/", "http://127.0.0.1");
+    if (url.pathname.startsWith("/api/") && applyCors(req, res)) return;
     try {
+      if (url.pathname === "/api/leaderboard" && req.method === "GET") {
+        return send(res, 200, publicLeaderboard(store.readScores(), url.searchParams));
+      }
       if (url.pathname === "/api/auth/login" && req.method === "POST") {
         if (!config.sessionSecret) return send(res, 503, { error: "auth secret not configured" });
         let body;
